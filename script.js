@@ -960,7 +960,12 @@ function exportData() {
                                             const url = URL.createObjectURL(blob);
                                             const a = document.createElement("a");
                                             a.href = url;
-                                            a.download = `dashboard-save-${new Date().toISOString().split('T')[0]}.json`;
+                                            // Get local time and format it to be file-system safe (no colons)
+                                            const now = new Date();
+                                            const tzoffset = now.getTimezoneOffset() * 60000;
+                                            const localTime = new Date(now.getTime() - tzoffset).toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
+
+                                            a.download = `Game of Life ${localTime}.json`;
                                             a.click();
                                             showToast("Save file downloaded successfully!");
                                         }
