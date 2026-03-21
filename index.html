@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game of Life | Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <link href="./style.css" rel="stylesheet">
+</head>
+<body class="min-h-screen pb-20 bg-gray-50/50">
+
+    <header class="sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 mb-8">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                </div>
+                <h1 class="text-2xl font-bold tracking-tight text-dark hidden sm:block">Game of Life</h1>
+                <div id="yearBadge" class="hidden bg-gradient-to-r from-yellow-400 to-yellow-500 text-yellow-900 text-xs font-extrabold px-2.5 py-0.5 rounded-full shadow-sm border border-yellow-300 transform transition-all hover:scale-110">1+</div>
+            </div>
+    
+            <div class="flex items-center gap-4">
+                <button onclick="openStreakModal()" class="flex items-center gap-2 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-full font-bold shadow-sm border border-red-100 transition-all active:scale-95" title="Milestones & Unlocks">
+                    <span class="text-sm">🔥</span> 
+                    <span id="highestStreak">0</span>
+                </button>
+
+                <button onclick="openShopModal()" class="flex items-center gap-2 px-4 py-1.5 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-full font-bold shadow-sm border border-orange-100 transition-all active:scale-95" title="Open Shop & Stash">
+                    <span class="text-sm">💎</span> <span id="gemCount">0</span>
+                </button>
+
+                <div class="h-6 w-px bg-gray-200"></div>
+
+                <button onclick="openSettings()" class="p-2 text-gray-400 hover:text-dark hover:bg-gray-100 rounded-full transition-all active:scale-90" title="Settings & Data">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-6">
+        
+        <section class="flex flex-col mb-6">
+            <div class="flex items-center justify-between mb-6 border-b border-gray-200 pb-2">
+                <h2 class="text-2xl font-bold text-dark">Active Board</h2>
+            </div>
+            
+            <div id="taskContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                </div>
+        </section>
+
+        <section class="pt-4 border-t border-gray-200 mb-6">
+            <button onclick="toggleFinishedQuests()" class="flex items-center justify-between w-full text-left group py-2 outline-none">
+                <h3 class="text-lg font-bold text-gray-400 group-hover:text-dark transition-colors">Completed Quests (<span id="finishedCount">0</span>)</h3>
+                <svg id="finishedChevron" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 group-hover:text-dark transition-transform duration-300 transform rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+            <div id="finishedTaskContainer" class="hidden grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
+                </div>
+        </section>
+
+        <section class="pt-4 border-t border-gray-200">
+            <button onclick="toggleComingQuests()" class="flex items-center justify-between w-full text-left group py-2 outline-none">
+                <h3 class="text-lg font-bold text-gray-400 group-hover:text-dark transition-colors">Coming Quests (<span id="comingCount">0</span>)</h3>
+                <svg id="comingChevron" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 group-hover:text-dark transition-transform duration-300 transform rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+            <div id="comingTaskContainer" class="hidden grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4 mb-4">
+                </div>
+        </section>
+    </main>
+
+    <div id="taskModal" class="fixed inset-0 z-50 hidden overflow-y-auto px-4 py-6 sm:px-0 flex items-center justify-center">
+        <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity" onclick="closeTaskModal()"></div>
+        <div class="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl modal-enter overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-8 pt-8 pb-6 overflow-y-auto custom-scrollbar">
+                <h2 id="taskModalTitle" class="text-2xl font-bold text-dark mb-6">New Quest</h2>
+                <form id="taskForm" class="space-y-6" onsubmit="event.preventDefault();">
+                    <input type="hidden" id="editTaskId">
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-dark mb-2">Quest Name</label>
+                        <input type="text" id="taskName" required placeholder="e.g. Read 1 Chapter, Complete Thesis Section..." class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none transition-all">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-semibold text-dark mb-2">Description <span class="text-muted font-normal">(Optional)</span></label>
+                        <textarea id="taskDesc" rows="2" placeholder="Quest details..." class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none transition-all resize-none"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-dark mb-2">Start Date & Time</label>
+                        <input type="datetime-local" id="taskStartDate" class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none transition-all font-medium text-dark cursor-pointer text-center">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-dark mb-2">Quest Type</label>
+                        <select id="questType" onchange="toggleQuestType()" class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark cursor-pointer">
+                            <option value="onetime">🎯 One-Time Quest</option>
+                            <option value="recurring">🔁 Recurring Habit</option>
+                        </select>
+                    </div>
+
+                    <div id="oneTimeSettings" class="hidden space-y-6">
+                        <div>
+                            <label class="block text-sm font-semibold text-dark mb-2">Deadline Type</label>
+                            <select id="oneTimeDeadlineType" onchange="toggleOneTimeInputs()" class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark cursor-pointer">
+                                <option value="duration" selected>By Duration (Days/Weeks/Months)</option>
+                                <option value="date">By Specific Date & Time</option>
+                            </select>
+                        </div>
+
+                        <div id="oneTimeDurationInputs" class="flex gap-3">
+                            <input type="number" id="oneTimeNum" min="1" value="1" class="w-24 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark text-center">
+                            <select id="oneTimeUnit" class="flex-1 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all appearance-none cursor-pointer font-medium text-dark">
+                                <option value="days">Days</option>
+                                <option value="weeks" selected>Weeks</option>
+                                <option value="months">Months</option>
+                                <option value="years">Years</option>
+                            </select>
+                        </div>
+
+                        <div id="oneTimeDateInputs" class="hidden">
+                            <label class="block text-sm font-semibold text-dark mb-2">Hard Deadline <span class="text-red-500">*</span></label>
+                            <input type="datetime-local" id="oneTimeDeadline" class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark cursor-pointer text-center">
+                        </div>
+                    </div>
+
+                    <div id="recurringSettings" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-semibold text-dark mb-2">Repeat Every</label>
+                            <div class="flex gap-3">
+                                <input type="number" id="taskFreqNum" min="1" value="1" class="w-24 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark text-center">
+                                <select id="taskFreqUnit" class="flex-1 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all appearance-none cursor-pointer font-medium text-dark">
+                                    <option value="days">Days</option>
+                                    <option value="weeks" selected>Weeks</option>
+                                    <option value="months">Months</option>
+                                    <option value="years">Years</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="pt-4 border-t border-gray-100">
+                            <label class="flex items-center gap-2 cursor-pointer mb-3">
+                                <input type="checkbox" id="taskHasLimit" onchange="toggleLimitType()" class="w-4 h-4 text-orange-500 rounded focus:ring-orange-400">
+                                <span class="text-sm font-semibold text-dark">This quest has a time limit</span>
+                            </label>
+                            
+                            <div id="limitOptionsContainer" class="hidden space-y-3">
+                                <select id="limitType" onchange="toggleLimitInputs()" class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all appearance-none cursor-pointer font-medium text-dark">
+                                    <option value="duration">By Duration (Days/Weeks/Months)</option>
+                                    <option value="date">By Specific Date</option>
+                                    <option value="occurrences">By Number of Occurrences</option>
+                                </select>
+
+                                <div id="limitDurationInputs" class="flex gap-3">
+                                    <input type="number" id="limitNum" min="1" value="1" class="w-20 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark text-center">
+                                    <select id="limitUnit" class="flex-1 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all appearance-none cursor-pointer font-medium text-dark">
+                                        <option value="days">Days</option>
+                                        <option value="weeks">Weeks</option>
+                                        <option value="months" selected>Months</option>
+                                        <option value="years">Years</option>
+                                    </select>
+                                </div>
+
+                                <div id="limitDateInputs" class="hidden gap-3">
+                                    <input type="datetime-local" id="limitDate" class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark cursor-pointer text-center">
+                                </div>
+
+                                <div id="limitOccurrencesInputs" class="hidden items-center gap-3">
+                                    <div class="flex items-center text-sm font-semibold text-muted px-2">Ends after</div>
+                                    <input type="number" id="limitOccurrences" min="1" value="10" class="w-24 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark text-center">
+                                    <div class="flex items-center text-sm font-semibold text-muted px-2">times</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="bg-gray-50 px-8 py-6 flex gap-3 shrink-0 border-t border-gray-100">
+                <button onclick="closeTaskModal()" class="flex-1 px-6 py-3 rounded-2xl font-semibold text-muted hover:bg-gray-200 transition-colors">Cancel</button>
+                <button onclick="saveTask()" class="flex-1 bg-dark text-white px-6 py-3 rounded-2xl font-semibold hover:bg-primary transition-colors shadow-lg shadow-gray-200">Save Quest</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto px-4 flex items-center justify-center">
+        <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm" onclick="closeDeleteModal()"></div>
+        <div class="relative max-w-sm w-full bg-white rounded-3xl shadow-2xl modal-enter p-8 text-center">
+            <div class="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            </div>
+            <h3 class="text-xl font-bold text-dark mb-2">Delete Quest?</h3>
+            <p class="text-muted mb-8 leading-relaxed">This action cannot be undone. Your progress and streaks will be lost forever.</p>
+            <div class="flex gap-3">
+                <button onclick="closeDeleteModal()" class="flex-1 px-4 py-3 rounded-2xl font-semibold text-muted bg-gray-100 hover:bg-gray-200 transition-colors">Go Back</button>
+                <button id="confirmDeleteBtn" class="flex-1 bg-red-500 text-white px-4 py-3 rounded-2xl font-semibold hover:bg-red-600 transition-colors shadow-lg shadow-red-100">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-60 bg-dark text-white px-6 py-3 rounded-full shadow-2xl transition-all opacity-0 translate-y-4 pointer-events-none">
+        <span id="toastMsg"></span>
+    </div>
+
+    <div id="shopModal" class="fixed inset-0 z-50 hidden overflow-y-auto px-4 flex items-center justify-center">
+        <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm" onclick="closeShopModal()"></div>
+        <div class="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl modal-enter p-6">
+            <h2 class="text-xl font-bold text-dark mb-6">🛒 Gem Shop</h2>
+            
+            <div class="flex gap-4 mb-6">
+                <div class="flex-1 bg-orange-50 rounded-2xl p-4 flex flex-col items-center justify-center border border-orange-100">
+                    <span class="text-2xl mb-1">💎</span>
+                    <span class="text-sm font-bold text-dark">Gems</span>
+                    <span id="shopGemCount" class="text-xl font-bold text-orange-600">0</span>
+                </div>
+                <div class="flex-1 bg-blue-50 rounded-2xl p-4 flex flex-col items-center justify-center border border-blue-100">
+                    <span class="text-2xl mb-1">❄️</span>
+                    <span class="text-sm font-bold text-dark">True Stash</span>
+                    <span class="text-xl font-bold text-primary"><span id="shopFreezeCount">0</span>/<span id="shopMaxFreezes">2</span></span>
+                </div>
+            </div>
+
+            <button onclick="buyGlobalFreeze()" class="w-full py-4 bg-dark text-white rounded-2xl font-bold hover:bg-primary transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-gray-200">
+                Buy 1 Freeze
+                <div class="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded text-sm ml-2">
+                    <span>💎</span> 14
+                </div>
+            </button>
+            <p class="text-xs text-center text-muted mt-3">Freezes protect your streak if you miss a deadline.</p>
+            
+            <button onclick="closeShopModal()" class="w-full mt-6 bg-gray-100 text-dark px-4 py-3 rounded-2xl font-semibold hover:bg-gray-200 transition-colors active:scale-95">Close</button>
+        </div>
+    </div>
+
+    <div id="settingsModal" class="fixed inset-0 z-50 hidden overflow-y-auto px-4 flex items-center justify-center">
+        <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm" onclick="closeSettings()"></div>
+        <div class="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl modal-enter p-6">
+            <h2 class="text-xl font-bold text-dark mb-6">⚙️ Settings</h2>
+            
+            <div class="space-y-4">
+                <div class="p-5 rounded-2xl bg-gray-50 border border-gray-100 space-y-3">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Data Management</h3>
+                    
+                    <button onclick="exportData(); closeSettings();" class="w-full py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-dark hover:text-primary hover:border-blue-100 transition-all shadow-sm flex items-center justify-center gap-2 active:scale-95">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        Backup Save File
+                    </button>
+                    
+                    <label class="w-full py-3 bg-white border border-gray-200 rounded-xl text-sm font-bold text-dark hover:text-orange-500 hover:border-orange-100 transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-95">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        Restore Save File
+                        <input type="file" id="importFile" class="hidden" onchange="importData(event); closeSettings();">
+                    </label>
+                </div>
+            </div>
+            
+            <button onclick="closeSettings()" class="w-full mt-6 bg-gray-100 text-dark px-4 py-3 rounded-2xl font-semibold hover:bg-gray-200 transition-colors active:scale-95">Close Menu</button>
+        </div>
+    </div>
+
+    <button onclick="openTaskModal()" class="fixed bottom-8 right-6 z-40 w-14 h-14 bg-dark text-white rounded-full flex items-center justify-center shadow-2xl hover:bg-primary hover:scale-110 active:scale-95 transition-all focus:outline-none">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
+    </button>
+
+    <div id="floatingChestContainer" class="fixed bottom-8 left-6 z-50 hidden cursor-pointer transition-transform hover:scale-110 active:scale-95 group" onclick="openChest()">
+        
+        <div id="chestNormal" class="relative hidden">
+            <div class="text-5xl drop-shadow-lg grayscale-[0.3]">📦</div>
+            <div class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse border-2 border-white">!</div>
+            <div class="absolute mt-2 left-1/2 -translate-x-1/2 bg-dark/90 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                <span id="chestComboText">Combo: 0/6</span>
+            </div>
+        </div>
+
+        <div id="chestMystery" class="relative hidden">
+            <div class="absolute inset-0 bg-blue-400 blur-lg rounded-full animate-pulse opacity-60"></div>
+            <div class="text-5xl drop-shadow-2xl relative z-10">🎁</div>
+            <div class="absolute mt-2 left-1/2 -translate-x-1/2 bg-blue-600/90 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Silver Mystery</div>
+        </div>
+
+        <div id="chestGold" class="relative hidden">
+            <div class="absolute inset-0 bg-yellow-400 blur-md rounded-full opacity-40"></div>
+            <div class="text-5xl drop-shadow-lg relative z-10">🧰</div>
+            <div class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse border-2 border-white z-20">!</div>
+            <div class="absolute mt-2 left-1/2 -translate-x-1/2 bg-yellow-600/90 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
+                <span id="chestGoldComboText">Combo: 0/6</span>
+            </div>
+        </div>
+
+        <div id="chestGoldMystery" class="relative hidden">
+            <div class="absolute inset-0 bg-yellow-400 blur-xl rounded-full animate-pulse opacity-80"></div>
+            <div class="text-5xl drop-shadow-2xl relative z-10">👑</div>
+            <div class="absolute mt-2 left-1/2 -translate-x-1/2 bg-yellow-600/90 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">Gold Mystery!</div>
+        </div>
+    </div>
+
+    <div id="streakModal" class="fixed inset-0 z-[70] hidden overflow-y-auto px-4 flex items-center justify-center">
+        <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm" onclick="closeStreakModal()"></div>
+        <div class="relative w-full max-w-md bg-white rounded-3xl shadow-2xl modal-enter p-6">
+            <h2 class="text-xl font-bold text-dark mb-2">🔥 Streak Milestones</h2>
+            <p class="text-sm text-muted mb-6">Reach higher streaks to unlock these powerful upgrades.</p>
+            
+            <div class="space-y-4" id="streakTogglesContainer">
+                </div>
+            
+            <button onclick="closeStreakModal()" class="w-full mt-6 bg-gray-100 text-dark px-4 py-3 rounded-2xl font-semibold hover:bg-gray-200 transition-colors active:scale-95">Close</button>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
