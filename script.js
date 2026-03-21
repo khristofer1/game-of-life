@@ -370,12 +370,9 @@ function refreshTasks() {
                                         const finishedQuests = tasks.filter(t => t.completed && !t.isArchived)
                                             .sort((a, b) => a.deadline - b.deadline);
 
-                                        document.getElementById('comingCount').innerText = comingQuests.length;
-                                        document.getElementById('finishedCount').innerText = finishedQuests.length;
-
-                                        renderTaskCards(activeQuests, 'taskContainer', 'No active quests for today.');
-                                        renderTaskCards(comingQuests, 'comingTaskContainer', 'No upcoming quests.');
-                                        renderTaskCards(finishedQuests, 'finishedTaskContainer', 'No quests conquered yet.');
+                                        renderTaskCards(activeQuests, 'activeTasksList', 'No active quests for today.');
+                                        renderTaskCards(comingQuests, 'comingTasksList', 'No upcoming quests.');
+                                        renderTaskCards(finishedQuests, 'completedTasksList', 'No quests conquered yet.');
                                     };
                                 }
                             }
@@ -678,37 +675,6 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
     });
 }
 
-function toggleComingQuests() {
-    const container = document.getElementById('comingTaskContainer');
-    const chevron = document.getElementById('comingChevron');
-
-    if (container.classList.contains('hidden')) {
-        container.classList.remove('hidden');
-        container.classList.add('grid');
-        chevron.classList.remove('rotate-180');
-    } else {
-        container.classList.add('hidden');
-        container.classList.remove('grid');
-        chevron.classList.add('rotate-180');
-    }
-}
-
-function toggleFinishedQuests() {
-    const container = document.getElementById('finishedTaskContainer');
-    const chevron = document.getElementById('finishedChevron');
-
-    // Toggle between Tailwind's 'hidden' and 'grid' classes
-    if (container.classList.contains('hidden')) {
-        container.classList.remove('hidden');
-        container.classList.add('grid');
-        chevron.classList.remove('rotate-180');
-    } else {
-        container.classList.add('hidden');
-        container.classList.remove('grid');
-        chevron.classList.add('rotate-180');
-    }
-}
-
 setInterval(() => {
     const now = Date.now();
     const dynamicCards = document.querySelectorAll('.dynamic-task-card');
@@ -745,6 +711,25 @@ setInterval(() => {
         }
     });
 }, 60000);
+
+function switchTab(tabId) {
+    // 1. Hide all tab panels
+    document.getElementById('tab-active').classList.add('hidden');
+    document.getElementById('tab-coming').classList.add('hidden');
+    document.getElementById('tab-completed').classList.add('hidden');
+
+    // 2. Show the selected panel
+    document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+
+    // 3. Reset all nav buttons to default gray
+    const baseNavClass = "flex-1 flex flex-col items-center gap-1 text-gray-400 hover:text-dark transition-all";
+    document.getElementById('nav-active').className = baseNavClass;
+    document.getElementById('nav-coming').className = baseNavClass;
+    document.getElementById('nav-completed').className = baseNavClass;
+
+    // 4. Highlight the active nav button with your primary color (Orange)
+    document.getElementById(`nav-${tabId}`).className = "flex-1 flex flex-col items-center gap-1 text-orange-500 transition-all scale-105";
+}
 
 // #endregion
 
