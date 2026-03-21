@@ -963,7 +963,7 @@ function exportData() {
                                             // Get local time and format it to be file-system safe (no colons)
                                             const now = new Date();
                                             const tzoffset = now.getTimezoneOffset() * 60000;
-                                            const localTime = new Date(now.getTime() - tzoffset).toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
+                                            const localTime = new Date(now.getTime() - tzoffset).toISOString().slice(0, 19).replace('T', " at ").replace(/:/g, '-');
 
                                             a.download = `Game of Life ${localTime}.json`;
                                             a.click();
