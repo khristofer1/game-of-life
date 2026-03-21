@@ -1,0 +1,5 @@
+{
+  "css.lint.unknownAtRules": "ignore",
+  "stylelint.enable": true,
+  "stylelint.validate": ["css"]
+}
