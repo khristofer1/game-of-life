@@ -93,14 +93,12 @@
         </div>
     </main>
 
-    <div id="taskModal"
-        class="fixed inset-0 z-50 hidden overflow-y-auto px-4 py-6 sm:px-0 flex items-center justify-center">
+    <div id="taskModal" class="fixed inset-0 z-50 hidden overflow-y-auto px-4 py-6 sm:px-0 flex items-center justify-center">
         <div class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity" onclick="closeTaskModal()"></div>
-        <div
-            class="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl modal-enter overflow-hidden flex flex-col max-h-[90vh]">
+        <div class="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl modal-enter overflow-hidden flex flex-col max-h-[90vh]">
             <div class="px-8 pt-8 pb-6 overflow-y-auto custom-scrollbar">
-                <h2 id="taskModalTitle" class="text-2xl font-bold text-dark mb-6">New Quest</h2>
-                <form id="taskForm" class="space-y-6" onsubmit="event.preventDefault();">
+                <h2 id="taskModalTitle" class="text-xl font-bold text-dark mb-6">New Quest</h2>
+                <form id="taskForm" class="space-y-6 text-sm" onsubmit="event.preventDefault();">
                     <input type="hidden" id="editTaskId">
 
                     <div>
@@ -222,7 +220,7 @@
                     </div>
                 </form>
             </div>
-            <div class="bg-gray-50 px-8 py-6 flex gap-3 shrink-0 border-t border-gray-100">
+            <div class="bg-gray-50 px-8 py-4 flex gap-3 shrink-0 border-t border-gray-100 text-sm">
                 <button onclick="closeTaskModal()"
                     class="flex-1 px-6 py-3 rounded-2xl font-semibold text-muted hover:bg-gray-200 transition-colors">Cancel</button>
                 <button onclick="saveTask()"
