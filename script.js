@@ -193,23 +193,6 @@ function refreshTasks() {
             let totalGemsEarned = 0;
             let freezesUsed = 0;
 
-            let veteranFound = false;
-            tasks.forEach(task => {
-                const isPending = task.startDate && now < task.startDate;
-                if (!task.isArchived && !isPending && task.streak >= 180) veteranFound = true;
-            });
-
-            if (!veteranFound && trueMaxFreezes === 5) {
-                trueMaxFreezes = 2;
-                if (activeCapacity > 2) activeCapacity = 2;
-                if (globalFreezes > 2) globalFreezes = 2;
-                showToast("⚠️ Veteran streak lost. True capacity reduced to 2.");
-            } else if (veteranFound && trueMaxFreezes === 2) {
-                trueMaxFreezes = 5;
-                globalFreezes += 3;
-                showToast("🔥 UNBELIEVABLE! 180 Day Streak. Expansion Unlocked!");
-            }
-
             let usableFreezes = Math.min(globalFreezes, activeCapacity);
 
             tasks.forEach(task => {
@@ -1106,13 +1089,12 @@ function closeShopModal() {
 }
 
 function openStreakModal() {
-    const transaction = db.transaction([TASK_STORE, META_STORE], "readonly");
-    const taskStore = transaction.objectStore(TASK_STORE);
+    const transaction = db.transaction([META_STORE], "readonly");
     const metaStore = transaction.objectStore(META_STORE);
 
-    taskStore.getAll().onsuccess = (eTasks) => {
-        const tasks = eTasks.target.result;
-        const highestStreak = tasks.length > 0 ? Math.max(...tasks.map(t => t.streak)) : 0;
+    // Fetch the new Global Streak instead of checking individual tasks
+    metaStore.get("globalStreak").onsuccess = (eStreak) => {
+        const highestStreak = eStreak.target.result || 0;
 
         metaStore.get("chestEnabled").onsuccess = (e1) => {
             const chestEnabled = e1.target.result || false;
@@ -1147,8 +1129,8 @@ function openStreakModal() {
                     container.innerHTML += createToggle('badge', '👑', 'Year Badge & Gold', 365, highestStreak >= 365, yearBadgeEnabled, 'yellow');
 
                     document.getElementById('streakModal').classList.remove('hidden');
-                }
-            }
+                };
+            };
         };
     };
 }
