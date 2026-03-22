@@ -1101,7 +1101,11 @@ function fetchAndEditTaskModal(id) {
         }
 
         document.getElementById('taskModal').classList.remove('hidden');
-        autoResize(document.getElementById('taskDesc'));
+        
+        // Give the browser 10ms to paint the modal before measuring the text
+        setTimeout(() => {
+            autoResize(document.getElementById('taskDesc'));
+        }, 10);
     };
 }
 
@@ -1368,7 +1372,7 @@ function importData(event) {
             taskStore.clear();
             data.tasks.forEach(task => taskStore.add(task));
 
-            // Restore all 5 critical metadata pieces
+            // Restore all critical metadata pieces
             if (data.metadata?.gems !== undefined) metaStore.put(data.metadata.gems, "gems");
             if (data.metadata?.globalFreezes !== undefined) metaStore.put(data.metadata.globalFreezes, "globalFreezes");
             if (data.metadata?.activeCapacity !== undefined) metaStore.put(data.metadata.activeCapacity, "activeCapacity");
@@ -1378,6 +1382,8 @@ function importData(event) {
             if (data.metadata?.lastChestOpenDate !== undefined) metaStore.put(data.metadata.lastChestOpenDate, "lastChestOpenDate");
             if (data.metadata?.chestEnabled !== undefined) metaStore.put(data.metadata.chestEnabled, "chestEnabled");
             if (data.metadata?.yearBadgeEnabled !== undefined) metaStore.put(data.metadata.yearBadgeEnabled, "yearBadgeEnabled");
+            if (data.metadata?.globalStreak !== undefined) metaStore.put(data.metadata.globalStreak, "globalStreak");
+            if (data.metadata?.lastStreakUpdate !== undefined) metaStore.put(data.metadata.lastStreakUpdate, "lastStreakUpdate");
 
 
             transaction.oncomplete = () => {
@@ -1460,21 +1466,6 @@ function toggleFeature(feature, isChecked) {
     if (feature === 'badge') metaStore.put(isChecked, "yearBadgeEnabled");
 
     transaction.oncomplete = () => refreshTasks(); // Apply UI changes instantly
-}
-
-function toggleCapacity() {
-    const isChecked = document.getElementById('capacityToggle').checked;
-    const newCapacity = isChecked ? 5 : 2;
-
-    const transaction = db.transaction([META_STORE], "readwrite");
-    const metaStore = transaction.objectStore(META_STORE);
-
-    // We strictly ONLY update the UI limit. The hidden stash is perfectly safe!
-    metaStore.put(newCapacity, "activeCapacity");
-
-    transaction.oncomplete = () => {
-        refreshTasks(); // Instantly visually updates the fraction in the header
-    };
 }
 
 // #endregion
