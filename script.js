@@ -7,6 +7,23 @@ const META_STORE = "metadata";
 
 const request = indexedDB.open(DB_NAME, DB_VERSION);
 
+// --- PROMISE WRAPPERS FOR INDEXEDDB ---
+function dbGet(store, key, defaultValue = null) {
+    return new Promise((resolve, reject) => {
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result !== undefined ? req.result : defaultValue);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function dbGetAll(store) {
+    return new Promise((resolve, reject) => {
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+}
+
 request.onupgradeneeded = (e) => {
     db = e.target.result;
     if (db.objectStoreNames.contains("habits")) db.deleteObjectStore("habits");
@@ -164,215 +181,203 @@ function openChest() {
 // #region 3: CORE QUEST LOGIC
 
 // QUEST ENGINE & AUTOMATION
-function refreshTasks() {
+async function refreshTasks() {
     const transaction = db.transaction([TASK_STORE, META_STORE], "readwrite");
     const store = transaction.objectStore(TASK_STORE);
     const metaStore = transaction.objectStore(META_STORE);
 
-    metaStore.get("gems").onsuccess = (eGems) => {
-        let gems = eGems.target.result || 0;
-        metaStore.get("globalFreezes").onsuccess = (eFreezes) => {
-        let globalFreezes = eFreezes.target.result || 0;
-        metaStore.get("activeCapacity").onsuccess = (eCap) => {
-        let activeCapacity = eCap.target.result || 2;
-        metaStore.get("trueMaxFreezes").onsuccess = (eMax) => {
-        let trueMaxFreezes = eMax.target.result || 2;
-        // NEW CHEST DATA:
-        metaStore.get("lastChestOpenDate").onsuccess = (eChestD) => {
-        let lastChestOpenDate = eChestD.target.result || 0;
-        metaStore.get("chestCombo").onsuccess = (eCombo) => {
-        let chestCombo = eCombo.target.result || 0;
-        metaStore.get("chestEnabled").onsuccess = (eChestOn) => {
-        let chestEnabled = eChestOn.target.result || false;
-        metaStore.get("yearBadgeEnabled").onsuccess = (eBadgeOn) => {
-        let yearBadgeEnabled = eBadgeOn.target.result || false;
+    try {
+        // 1. FETCH ALL DATA IN ONE FLAT BLOCK
+        const gems = await dbGet(metaStore, "gems", 0);
+        const globalFreezes = await dbGet(metaStore, "globalFreezes", 0);
+        const activeCapacity = await dbGet(metaStore, "activeCapacity", 2);
+        const trueMaxFreezes = await dbGet(metaStore, "trueMaxFreezes", 2);
+        const lastChestOpenDate = await dbGet(metaStore, "lastChestOpenDate", 0);
+        const chestCombo = await dbGet(metaStore, "chestCombo", 0);
+        const chestEnabled = await dbGet(metaStore, "chestEnabled", false);
+        const yearBadgeEnabled = await dbGet(metaStore, "yearBadgeEnabled", false);
+        
+        let lastStreakUpdate = await dbGet(metaStore, "lastStreakUpdate", 0);
+        let globalStreak = await dbGet(metaStore, "globalStreak", 0);
+        
+        const tasks = await dbGetAll(store);
 
-        store.getAll().onsuccess = (eTasks) => {
-            let tasks = eTasks.target.result;
-            const now = Date.now();
-            let totalGemsEarned = 0;
-            let freezesUsed = 0;
+        // 2. RUN THE ENGINE
+        const now = Date.now();
+        let totalGemsEarned = 0;
+        let freezesUsed = 0;
+        let usableFreezes = Math.min(globalFreezes, activeCapacity);
 
-            let usableFreezes = Math.min(globalFreezes, activeCapacity);
+        tasks.forEach(task => {
+            if (task.isArchived) return;
 
-            tasks.forEach(task => {
-                if (task.isArchived) return;
+            const isPending = task.startDate && now < task.startDate;
 
-                const isPending = task.startDate && now < task.startDate;
+            if (isPending) {
+                task.energyPercent = 100;
+                return;
+            }
 
-                if (isPending) {
-                    task.energyPercent = 100;
-                    return;
-                }
+            let timeLeft = task.deadline - now;
+            const todayDay = new Date(now).setHours(0, 0, 0, 0);
 
-                let timeLeft = task.deadline - now;
-                const todayDay = new Date(now).setHours(0, 0, 0, 0);
+            // --- UNIVERSAL MIDNIGHT SWEEPER ---
+            if (task.completed && !task.gemClaimed && task.completedAt) {
+                const completedDay = new Date(task.completedAt).setHours(0, 0, 0, 0);
 
-                // --- NEW: UNIVERSAL MIDNIGHT SWEEPER ---
-                if (task.completed && !task.gemClaimed && task.completedAt) {
-                    const completedDay = new Date(task.completedAt).setHours(0, 0, 0, 0);
-
-                    // If a day has passed since you completed it...
-                    if (todayDay > completedDay) {
-                        totalGemsEarned += 1;   
-                        task.gemClaimed = true; 
-                        
-                        if (task.isOneTime) {
-                            store.delete(task.id);  // One-time quests evaporate
-                            showToast(`Bounty Cleared: ${task.name}! +1 💎`);
-                            return; // Skip the rest of the logic
-                        } else {
-                            store.put(task); // Recurring quests stay, but claim status is saved
-                            showToast(`Daily Reward: ${task.name}! +1 💎`);
-                        }
-                    }
-                }
-
-                // --- ONE-TIME QUEST LOGIC ---
-                if (task.isOneTime) {
-                    if (timeLeft <= 0 && !task.completed) {
-                        task.isArchived = true;
-                        task.energyPercent = 0;
-                        store.put(task);
-                        showToast(`Failed one-time quest: ${task.name}`);
-                    } else if (timeLeft > 0 && !task.completed) {
-                        task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
-                    }
-                    return; 
-                }
-
-                // --- RECURRING LOGIC ---
-                if (task.hasLimit && now >= task.expireAt) {
-                    store.delete(task.id);
-                    return;
-                }
-
-                if (timeLeft <= 0) {
-                    const timeOverdue = now - task.deadline;
-                    const cyclesMissed = Math.floor(timeOverdue / task.durationMs) + 1;
-
-                    task.completed = false;
-                    task.gemClaimed = false; // Reset claim status for the new cycle!
-                    task.completedAt = null;
+                if (todayDay > completedDay) {
+                    totalGemsEarned += 1;   
+                    task.gemClaimed = true; 
                     
-                    task.createdAt = task.createdAt + (cyclesMissed * task.durationMs);
-                    task.deadline = task.deadline + (cyclesMissed * task.durationMs);
-                    timeLeft = task.deadline - now;
-                    store.put(task);
+                    if (task.isOneTime) {
+                        store.delete(task.id); 
+                        showToast(`Bounty Cleared: ${task.name}! +1 💎`);
+                        return; 
+                    } else {
+                        store.put(task); 
+                        showToast(`Daily Reward: ${task.name}! +1 💎`);
+                    }
                 }
+            }
 
-                if (timeLeft > 0 && !task.completed) {
+            // --- ONE-TIME QUEST LOGIC ---
+            if (task.isOneTime) {
+                if (timeLeft <= 0 && !task.completed) {
+                    task.isArchived = true;
+                    task.energyPercent = 0;
+                    store.put(task);
+                    showToast(`Failed one-time quest: ${task.name}`);
+                } else if (timeLeft > 0 && !task.completed) {
                     task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
                 }
+                return; 
+            }
+
+            // --- RECURRING LOGIC ---
+            if (task.hasLimit && now >= task.expireAt) {
+                store.delete(task.id);
+                return;
+            }
+
+            if (timeLeft <= 0) {
+                const timeOverdue = now - task.deadline;
+                const cyclesMissed = Math.floor(timeOverdue / task.durationMs) + 1;
+
+                task.completed = false;
+                task.gemClaimed = false; 
+                task.completedAt = null;
+                
+                task.createdAt = task.createdAt + (cyclesMissed * task.durationMs);
+                task.deadline = task.deadline + (cyclesMissed * task.durationMs);
+                timeLeft = task.deadline - now;
+                store.put(task);
+            }
+
+            if (timeLeft > 0 && !task.completed) {
+                task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
+            }
+        });
+
+        // --- THE GLOBAL FREEZE ENGINE ---
+        const todayDay = new Date(now).setHours(0, 0, 0, 0);
+        const lastStreakDay = new Date(lastStreakUpdate).setHours(0, 0, 0, 0);
+        const oneDay = 24 * 60 * 60 * 1000;
+
+        if (lastStreakUpdate !== 0 && globalStreak > 0 && todayDay > lastStreakDay) {
+            const daysPassed = Math.round((todayDay - lastStreakDay) / oneDay);
+            
+            if (daysPassed > 1) { 
+                const daysMissed = daysPassed - 1;
+
+                if (usableFreezes >= daysMissed) {
+                    globalFreezes -= daysMissed;
+                    freezesUsed += daysMissed;
+                    lastStreakUpdate += (daysMissed * oneDay); 
+                    metaStore.put(lastStreakUpdate, "lastStreakUpdate");
+                } else {
+                    globalStreak = 0;
+                    globalFreezes -= usableFreezes; 
+                    metaStore.put(0, "globalStreak");
+                    showToast("💔 You missed a day. Global Streak broken.");
+                }
+            }
+        }
+
+        // 1. Save all updated metadata safely
+            metaStore.put(gems + totalGemsEarned, "gems");
+            metaStore.put(globalFreezes, "globalFreezes");
+            metaStore.put(activeCapacity, "activeCapacity");
+            metaStore.put(trueMaxFreezes, "trueMaxFreezes");
+
+            // 2. Update UI Top Bar
+            document.getElementById('gemCount').innerText = gems + totalGemsEarned;
+            
+            const highestStreak = globalStreak;
+            const highestStreakEl = document.getElementById('highestStreak');
+            if (highestStreakEl) highestStreakEl.innerText = highestStreak;
+
+            // 3. Auto-Lock logic (Skill Tree)
+            let stateChanged = false;
+            if (highestStreak < 30 && chestEnabled) { chestEnabled = false; metaStore.put(false, "chestEnabled"); stateChanged = true; }
+            if (highestStreak < 180 && trueMaxFreezes === 5) { trueMaxFreezes = 2; activeCapacity = 2; globalFreezes = Math.min(globalFreezes, 2); metaStore.put(2, "trueMaxFreezes"); metaStore.put(2, "activeCapacity"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("⚠️ Streak fell below 180. Freezes locked."); }
+            if (highestStreak >= 180 && trueMaxFreezes === 2) { trueMaxFreezes = 5; globalFreezes += 3; metaStore.put(5, "trueMaxFreezes"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("🔥 180 Streak! Capacity expanded to 5."); }
+            if (highestStreak < 365 && yearBadgeEnabled) { yearBadgeEnabled = false; metaStore.put(false, "yearBadgeEnabled"); stateChanged = true; }
+
+            const badgeEl = document.getElementById('yearBadge');
+            if (yearBadgeEnabled && badgeEl) {
+                const years = Math.floor(highestStreak / 365);
+                badgeEl.innerText = `${years}+`;
+                badgeEl.classList.remove('hidden');
+            } else if (badgeEl) {
+                badgeEl.classList.add('hidden');
+            }
+
+            // 4. Chest UI
+            const chestContainer = document.getElementById('floatingChestContainer');
+            ['chestNormal', 'chestMystery', 'chestGold', 'chestGoldMystery'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
             });
 
-            // --- THE GLOBAL FREEZE ENGINE ---
-        metaStore.get("lastStreakUpdate").onsuccess = (eDate) => {
-            let lastStreakUpdate = eDate.target.result || 0;
-            metaStore.get("globalStreak").onsuccess = (eStreak) => {
-                let globalStreak = eStreak.target.result || 0;
+            const lastOpenDay = new Date(lastChestOpenDate).setHours(0, 0, 0, 0);
+            if (chestEnabled && highestStreak > 0 && todayDay > lastOpenDay) {
+                chestContainer.classList.remove('hidden');
+                let displayCombo = (lastChestOpenDate !== 0 && (todayDay - lastOpenDay > oneDay)) ? 0 : chestCombo;
+                const textId = yearBadgeEnabled ? 'chestGoldComboText' : 'chestComboText';
+                const elText = document.getElementById(textId);
+                if (elText) elText.innerText = `Combo: ${displayCombo}/6`;
 
-                const todayDay = new Date(now).setHours(0, 0, 0, 0);
-                const lastStreakDay = new Date(lastStreakUpdate).setHours(0, 0, 0, 0);
-                const oneDay = 24 * 60 * 60 * 1000;
-
-                // Did we miss yesterday?
-                if (lastStreakUpdate !== 0 && globalStreak > 0 && todayDay > lastStreakDay) {
-                    const daysPassed = Math.round((todayDay - lastStreakDay) / oneDay);
-                    
-                    if (daysPassed > 1) { // 2+ days means at least yesterday was completely missed!
-                        const daysMissed = daysPassed - 1;
-                        let usableFreezes = Math.min(globalFreezes, activeCapacity);
-
-                        if (usableFreezes >= daysMissed) {
-                            // Protected by the Stash!
-                            globalFreezes -= daysMissed;
-                            freezesUsed += daysMissed;
-                            lastStreakUpdate += (daysMissed * oneDay); // Fast-forward time so we don't double-charge
-                            metaStore.put(lastStreakUpdate, "lastStreakUpdate");
-                        } else {
-                            // Streak Broken!
-                            globalStreak = 0;
-                            globalFreezes -= usableFreezes; // Burn whatever was left in the active slot
-                            metaStore.put(0, "globalStreak");
-                            showToast("💔 You missed a day. Global Streak broken.");
-                        }
-                    }
-                }
-
-                // 1. Save all updated metadata safely
-                metaStore.put(gems + totalGemsEarned, "gems");
-                metaStore.put(globalFreezes, "globalFreezes");
-                metaStore.put(activeCapacity, "activeCapacity");
-                metaStore.put(trueMaxFreezes, "trueMaxFreezes");
-
-                // 2. Update UI Top Bar
-                document.getElementById('gemCount').innerText = gems + totalGemsEarned;
-                
-                const highestStreak = globalStreak;
-                const highestStreakEl = document.getElementById('highestStreak');
-                if (highestStreakEl) highestStreakEl.innerText = highestStreak;
-
-                // 3. Auto-Lock logic (Skill Tree)
-                let stateChanged = false;
-                if (highestStreak < 30 && chestEnabled) { chestEnabled = false; metaStore.put(false, "chestEnabled"); stateChanged = true; }
-                if (highestStreak < 180 && trueMaxFreezes === 5) { trueMaxFreezes = 2; activeCapacity = 2; globalFreezes = Math.min(globalFreezes, 2); metaStore.put(2, "trueMaxFreezes"); metaStore.put(2, "activeCapacity"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("⚠️ Streak fell below 180. Freezes locked."); }
-                if (highestStreak >= 180 && trueMaxFreezes === 2) { trueMaxFreezes = 5; globalFreezes += 3; metaStore.put(5, "trueMaxFreezes"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("🔥 180 Streak! Capacity expanded to 5."); }
-                if (highestStreak < 365 && yearBadgeEnabled) { yearBadgeEnabled = false; metaStore.put(false, "yearBadgeEnabled"); stateChanged = true; }
-
-                const badgeEl = document.getElementById('yearBadge');
-                if (yearBadgeEnabled && badgeEl) {
-                    const years = Math.floor(highestStreak / 365);
-                    badgeEl.innerText = `${years}+`;
-                    badgeEl.classList.remove('hidden');
-                } else if (badgeEl) {
-                    badgeEl.classList.add('hidden');
-                }
-
-                // 4. Chest UI
-                const chestContainer = document.getElementById('floatingChestContainer');
-                ['chestNormal', 'chestMystery', 'chestGold', 'chestGoldMystery'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.classList.add('hidden');
-                });
-
-                const lastOpenDay = new Date(lastChestOpenDate).setHours(0, 0, 0, 0);
-                if (chestEnabled && highestStreak > 0 && todayDay > lastOpenDay) {
-                    chestContainer.classList.remove('hidden');
-                    let displayCombo = (lastChestOpenDate !== 0 && (todayDay - lastOpenDay > oneDay)) ? 0 : chestCombo;
-                    const textId = yearBadgeEnabled ? 'chestGoldComboText' : 'chestComboText';
-                    const elText = document.getElementById(textId);
-                    if (elText) elText.innerText = `Combo: ${displayCombo}/6`;
-
-                    if (displayCombo >= 6) {
-                        document.getElementById(yearBadgeEnabled ? 'chestGoldMystery' : 'chestMystery').classList.remove('hidden');
-                    } else {
-                        document.getElementById(yearBadgeEnabled ? 'chestGold' : 'chestNormal').classList.remove('hidden');
-                    }
+                if (displayCombo >= 6) {
+                    document.getElementById(yearBadgeEnabled ? 'chestGoldMystery' : 'chestMystery').classList.remove('hidden');
                 } else {
-                    chestContainer.classList.add('hidden');
+                    document.getElementById(yearBadgeEnabled ? 'chestGold' : 'chestNormal').classList.remove('hidden');
                 }
+            } else {
+                chestContainer.classList.add('hidden');
+            }
 
-                const shopGem = document.getElementById('shopGemCount');
-                if (shopGem) {
-                    shopGem.innerText = gems + totalGemsEarned;
-                    document.getElementById('shopFreezeCount').innerText = globalFreezes;
-                    document.getElementById('shopMaxFreezes').innerText = trueMaxFreezes;
-                }
+            const shopGem = document.getElementById('shopGemCount');
+            if (shopGem) {
+                shopGem.innerText = gems + totalGemsEarned;
+                document.getElementById('shopFreezeCount').innerText = globalFreezes;
+                document.getElementById('shopMaxFreezes').innerText = trueMaxFreezes;
+            }
 
-                if (freezesUsed > 0) showToast(`Used ${freezesUsed} ❄️ to protect your Global Streak!`);
+            if (freezesUsed > 0) showToast(`Used ${freezesUsed} ❄️ to protect your Global Streak!`);
 
-                // 5. Render Board
-                const activeQuests = tasks.filter(t => !t.completed && !t.isArchived && !(t.startDate && now < t.startDate)).sort((a, b) => a.deadline - b.deadline);
-                const comingQuests = tasks.filter(t => !t.completed && !t.isArchived && (t.startDate && now < t.startDate)).sort((a, b) => a.startDate - b.startDate);
-                const finishedQuests = tasks.filter(t => t.completed && !t.isArchived).sort((a, b) => a.deadline - b.deadline);
+            // 5. Render Board
+            const activeQuests = tasks.filter(t => !t.completed && !t.isArchived && !(t.startDate && now < t.startDate)).sort((a, b) => a.deadline - b.deadline);
+            const comingQuests = tasks.filter(t => !t.completed && !t.isArchived && (t.startDate && now < t.startDate)).sort((a, b) => a.startDate - b.startDate);
+            const finishedQuests = tasks.filter(t => t.completed && !t.isArchived).sort((a, b) => a.deadline - b.deadline);
 
-                renderTaskCards(activeQuests, 'activeTasksList', 'No active quests for today.');
-                renderTaskCards(comingQuests, 'comingTasksList', 'No upcoming quests.');
-                renderTaskCards(finishedQuests, 'completedTasksList', 'No quests conquered yet.');
-            }; // Closes the globalStreak fetch
-        }; // Closes the lastStreakUpdate fetch
-    }}}}}}}}};
+            renderTaskCards(activeQuests, 'activeTasksList', 'No active quests for today.');
+            renderTaskCards(comingQuests, 'comingTasksList', 'No upcoming quests.');
+            renderTaskCards(finishedQuests, 'completedTasksList', 'No quests conquered yet.');
+        } catch (error) {
+        // The missing parachute!
+        console.error("Critical Engine Failure:", error);
+        showToast("System Error: Board failed to synchronize.");
+    }
 }
 
 function saveTask() {
@@ -393,11 +398,15 @@ function saveTask() {
     }
 
     // --- QUEST TYPE LOGIC ---
-    const isOneTime = document.getElementById('questType').value === 'onetime';
+    const questTypeValue = document.getElementById('questType').value;
+    const isOneTime = questTypeValue === 'onetime' || questTypeValue === 'folder'; 
+    const isFolder = questTypeValue === 'folder';
+
     let freqNum = 1, freqUnit = 'weeks', displayFreq = '', durationMs = 0;
     let hasLimit = false, limitData = { type: null }, expireAt = null;
     let deadline;
-    let oneTimeData = null; // <-- NEW: Stores your choice so we can edit it later
+    let oneTimeData = null; 
+    let subQuests = [];
 
     if (isOneTime) {
         const otType = document.getElementById('oneTimeDeadlineType').value;
@@ -423,8 +432,20 @@ function saveTask() {
             durationMs = deadline - startDate;
             oneTimeData = { type: 'date', dateStr: deadlineInput };
         }
-        displayFreq = "One-Time Quest";
+        
+        displayFreq = isFolder ? "📁 Quest Folder" : "One-Time Quest";
+        
+        if (isFolder) {
+            const inputs = document.querySelectorAll('.sub-quest-input');
+            inputs.forEach(input => {
+                if (input.value.trim() !== '') {
+                    subQuests.push({ name: input.value.trim(), completed: input.getAttribute('data-completed') === 'true' });
+                }
+            });
+            if (subQuests.length === 0) return showToast("Folders must have at least one sub-quest.");
+        }
     } else {
+        // --- RECURRING LOGIC ---
         freqNum = parseInt(document.getElementById('taskFreqNum').value);
         freqUnit = document.getElementById('taskFreqUnit').value;
         if (freqNum < 1 || isNaN(freqNum)) return showToast("Enter a valid frequency.");
@@ -439,7 +460,6 @@ function saveTask() {
         displayFreq = `Every ${freqNum} ${unitText.charAt(0).toUpperCase() + unitText.slice(1)}`;
         deadline = startDate + durationMs;
 
-        // Limits UI Data
         hasLimit = document.getElementById('taskHasLimit').checked;
         const limitType = document.getElementById('limitType').value;
         const limitNum = parseInt(document.getElementById('limitNum').value);
@@ -499,6 +519,10 @@ function saveTask() {
                 const timeLeft = task.deadline - now;
                 task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
             }
+            
+            // Assign folder data BEFORE saving to the database
+            task.isFolder = isFolder;
+            task.subQuests = subQuests;
 
             store.put(task);
             transaction.oncomplete = () => {
@@ -511,7 +535,8 @@ function saveTask() {
         // --- ADDING NEW ---
         store.add({
             name, desc, isOneTime, freqNum, freqUnit, displayFreq, durationMs,
-            hasLimit, limitData, expireAt, isArchived: false,
+            hasLimit, limitData, expireAt, isFolder, subQuests,
+            isArchived: false,
             startDate: startDate,
             createdAt: startDate,
             deadline: deadline,
@@ -651,7 +676,7 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
         const card = document.createElement('div');
 
         // Add dynamic targeting class
-        card.className = `glass-card rounded-[2rem] p-6 shadow-premium transition-all ${task.completed ? 'ring-2 ring-orange-400 bg-white/40 ring-inset' : ''} ${isPending ? 'opacity-75 grayscale-[0.2]' : ''} ${isDynamic ? 'dynamic-task-card' : ''}`;
+        card.className = `glass-card rounded-[2rem] p-6 shadow-premium transition-all flex flex-col ${task.completed ? 'ring-2 ring-orange-400 bg-white/40 ring-inset' : ''} ${isPending ? 'opacity-75 grayscale-[0.2]' : ''} ${isDynamic ? 'dynamic-task-card' : ''}`;
 
         // Embed the math directly into the HTML element
         if (isDynamic) {
@@ -680,31 +705,35 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
         }
 
         card.innerHTML = `
-            <div class="flex justify-between items-start mb-3 gap-4">
-                <div class="flex-1 min-w-0">
-                    <h3 class="text-lg font-bold text-dark leading-tight">${task.name}</h3>
-                    ${task.desc ? `<p class="text-xs text-muted mt-1 line-clamp-2">${task.desc}</p>` : ''}
-                </div>
+            <div class="mb-3">
+                <h3 class="text-lg font-bold text-dark leading-tight">${task.name}</h3>
+                ${task.desc ? `<p class="text-xs text-dark/70 mt-1 line-clamp-2">${task.desc}</p>` : ''}
             </div>
-
-            <div class="mt-auto pt-2 mb-5">
-                <div class="flex justify-between items-end mb-1">
-                    <span class="text-xs font-bold text-muted uppercase tracking-wider">${task.displayFreq}</span>
-                    <span class="text-sm font-bold energy-text ${isPending ? 'text-gray-400' : (task.completed ? 'text-green-500' : 'text-orange-500')}">${isPending ? 'Locked' : (task.completed ? 'Safe at ' + task.energyPercent + '%' : task.energyPercent + '%')}</span>
+            
+            <div class="mt-auto space-y-4">
+                <div>
+                    <div class="flex justify-between items-end mb-1.5">
+                        <span class="text-xs font-bold text-muted uppercase tracking-wider">${task.displayFreq}</span>
+                        <span class="text-sm font-bold energy-text ${isPending ? 'text-gray-400' : (task.completed ? 'text-green-500' : 'text-orange-500')}">${isPending ? 'Locked' : (task.completed ? 'Safe at ' + task.energyPercent + '%' : task.energyPercent + '%')}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div class="${barColor} h-2 rounded-full transition-all duration-1000 ease-out energy-bar" style="width: ${task.energyPercent}%"></div>
+                    </div>
                 </div>
-                <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                    <div class="${barColor} h-2 rounded-full transition-all duration-1000 ease-out energy-bar" style="width: ${task.energyPercent}%"></div>
-                </div>
-            </div>
 
-            <div class="mt-auto pt-2 flex items-center justify-between gap-2">
-                <button ${btnAction} class="check-transition flex-grow flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm whitespace-nowrap ${btnClass}">
-                    ${btnText}
-                </button>
-                
-                <div class="flex gap-1 shrink-0 ml-2">
-                    <button onclick="fetchAndEditTaskModal(${task.id})" class="p-3 rounded-xl bg-gray-50 text-muted hover:text-orange-500 hover:bg-orange-50 transition-all active:scale-90" title="Edit">✏️</button>
-                    <button onclick="confirmDelete(${task.id})" class="p-3 rounded-xl bg-gray-50 text-muted hover:text-red-500 hover:bg-red-50 transition-all active:scale-90" title="Delete">🗑️</button>
+                <div class="flex items-center gap-2 pt-1">
+                    ${task.isFolder ? `
+                    <button onclick="openFolderView(${task.id})" class="check-transition flex-grow flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm whitespace-nowrap bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700">
+                        Open Quest(s)
+                    </button>` : `
+                    <button ${btnAction} class="check-transition flex-grow flex items-center justify-center py-3 rounded-xl font-bold text-sm whitespace-nowrap ${btnClass}">
+                        ${btnText}
+                    </button>`}
+                    
+                    <div class="flex gap-1 shrink-0">
+                        <button onclick="fetchAndEditTaskModal(${task.id})" class="p-3 rounded-xl bg-gray-50 text-muted hover:text-orange-500 hover:bg-orange-50 transition-all active:scale-90" title="Edit">✏️</button>
+                        <button onclick="confirmDelete(${task.id})" class="p-3 rounded-xl bg-gray-50 text-muted hover:text-red-500 hover:bg-red-50 transition-all active:scale-90" title="Delete">🗑️</button>
+                    </div>
                 </div>
             </div>
         `;
@@ -789,9 +818,183 @@ function autoResize(textarea) {
     }
 }
 
+// --- FOLDER VIEW LOGIC ---
+let currentFolderViewId = null;
+
+function openFolderView(taskId) {
+    currentFolderViewId = taskId;
+    renderFolderView();
+    document.getElementById('folderViewModal').classList.remove('hidden');
+}
+
+function closeFolderViewModal() {
+    document.getElementById('folderViewModal').classList.add('hidden');
+    currentFolderViewId = null;
+}
+
+function renderFolderView() {
+    if (!currentFolderViewId) return;
+
+    const transaction = db.transaction([TASK_STORE], "readonly");
+    const store = transaction.objectStore(TASK_STORE);
+
+    store.get(currentFolderViewId).onsuccess = (e) => {
+        const task = e.target.result;
+        if (!task) return closeFolderViewModal(); 
+
+        document.getElementById('folderViewTitle').innerText = task.name;
+        
+        const completedCount = task.subQuests.filter(sq => sq.completed).length;
+        document.getElementById('folderViewProgress').innerText = `${completedCount} / ${task.subQuests.length} Quests Completed`;
+
+        let html = '';
+        task.subQuests.forEach((sq, idx) => {
+            html += `
+                <div class="flex items-start justify-between p-2 rounded-xl hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100 group">
+                    <div class="flex items-start gap-3 flex-1 min-w-0 pt-0.5">
+                        <div class="w-5 h-5 shrink-0 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all ${sq.completed ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-300 group-hover:border-orange-400'}" onclick="toggleSubQuest(${task.id}, ${idx})">
+                            <svg class="w-4 h-4 ${sq.completed ? 'opacity-100' : 'opacity-0'} transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                        </div>
+                        
+                        <textarea rows="1" 
+                            oninput="autoResize(this)" 
+                            onchange="updateSubQuestName(${task.id}, ${idx}, this.value)"
+                            onkeydown="if(event.key === 'Enter') { event.preventDefault(); this.blur(); }"
+                            class="flex-1 bg-transparent border-none p-0 focus:ring-0 resize-none overflow-hidden outline-none text-sm font-medium transition-all ${sq.completed ? 'text-gray-400 line-through' : 'text-dark'}">${sq.name}</textarea>
+                    </div>
+                    
+                    <div class="flex gap-1 shrink-0 ml-2">
+                        <button onclick="deleteSubQuestFromModal(${task.id}, ${idx})" class="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all active:scale-90 text-sm" title="Delete">🗑️</button>
+                    </div>
+                </div>
+            `;
+        });
+
+        // --- THE NATIVE "ADD ROW" ---
+        html += `
+            <div class="flex items-start justify-between p-2 rounded-xl transition-all border border-transparent mt-1">
+                <div class="flex items-start gap-3 flex-1 min-w-0 pt-0.5">
+                    <div class="w-6 h-6 shrink-0 flex items-center justify-center text-gray-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    </div>
+                    <textarea rows="1" 
+                        placeholder="Add sub-quest..."
+                        oninput="autoResize(this)" 
+                        onkeydown="if(event.key === 'Enter') { event.preventDefault(); const val = this.value; this.value = ''; addNewSubQuestFromModal(val); }"
+                        onblur="if(this.value.trim() !== '') { const val = this.value; this.value = ''; addNewSubQuestFromModal(val); }"
+                        class="flex-1 bg-transparent border-none p-0 focus:ring-0 resize-none overflow-hidden outline-none text-sm font-medium text-dark"></textarea>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('folderViewList').innerHTML = html;
+
+        setTimeout(() => {
+            document.querySelectorAll('#folderViewList textarea').forEach(el => autoResize(el));
+        }, 10);
+    };
+}
+
+function addNewSubQuestFromModal(newName) {
+    const name = newName ? newName.trim() : '';
+    if (!name || !currentFolderViewId) return;
+
+    const transaction = db.transaction([TASK_STORE], "readwrite");
+    const store = transaction.objectStore(TASK_STORE);
+
+    store.get(currentFolderViewId).onsuccess = (e) => {
+        const task = e.target.result;
+        task.subQuests.push({ name: name, completed: false });
+        
+        // If the folder was marked complete, adding a new quest uncompletes it!
+        if (task.completed) {
+            task.completed = false;
+            task.completedAt = null;
+            task.gemClaimed = false;
+        }
+
+        store.put(task);
+        transaction.oncomplete = () => {
+            refreshTasks();
+            renderFolderView();
+            
+            // Rapid-Fire UX: Auto-focus the new empty row so you can keep typing!
+            setTimeout(() => {
+                const textareas = document.querySelectorAll('#folderViewList textarea');
+                if(textareas.length > 0) {
+                    textareas[textareas.length - 1].focus();
+                }
+            }, 50);
+        };
+    };
+}
+
+function updateSubQuestName(taskId, subIndex, newName) {
+    const name = newName.trim();
+    if (!name) return; // If they accidentally delete everything, just ignore the save
+
+    const transaction = db.transaction([TASK_STORE], "readwrite");
+    const store = transaction.objectStore(TASK_STORE);
+
+    store.get(taskId).onsuccess = (e) => {
+        const task = e.target.result;
+        
+        // Only trigger a save if they actually changed a letter
+        if (task.subQuests[subIndex].name !== name) {
+            task.subQuests[subIndex].name = name;
+            store.put(task);
+            
+            transaction.oncomplete = () => {
+                refreshTasks(); // Update the main board silently in the background
+            };
+        }
+    };
+}
+
+function deleteSubQuestFromModal(taskId, subIndex) {
+    const transaction = db.transaction([TASK_STORE], "readwrite");
+    const store = transaction.objectStore(TASK_STORE);
+
+    store.get(taskId).onsuccess = (e) => {
+        const task = e.target.result;
+        
+        if (task.subQuests.length <= 1) {
+            showToast("Folders must have at least one sub-quest.");
+            return; 
+        }
+
+        if (!confirm("Delete this sub-quest?")) return;
+        
+        // Remove the item
+        task.subQuests.splice(subIndex, 1);
+        
+        // Check if deleting this item suddenly makes the whole folder complete!
+        const allDone = task.subQuests.every(sq => sq.completed);
+        const wasFolderCompleted = task.completed;
+        task.completed = allDone;
+
+        if (task.completed && !wasFolderCompleted) {
+            task.completedAt = Date.now();
+            task.gemClaimed = false;
+            showToast(`📁 Folder Cleared: ${task.name}!`);
+        } else if (!task.completed && wasFolderCompleted) {
+            task.completedAt = null;
+            task.gemClaimed = false;
+        }
+
+        store.put(task);
+        transaction.oncomplete = () => {
+            refreshTasks();
+            renderFolderView();
+        };
+    };
+}
+
 function openTaskModal() {
     document.getElementById('taskModal').classList.remove('hidden');
     document.getElementById('taskForm').reset();
+    clearSubQuests();
+    addSubQuestInput('Quest 1'); // Give them one empty input to start
     document.getElementById('taskDesc').style.height = 'auto';
     document.getElementById('editTaskId').value = '';
     document.getElementById('taskModalTitle').innerText = 'New Quest';
@@ -845,8 +1048,19 @@ function fetchAndEditTaskModal(id) {
             document.getElementById('taskStartDate').value = '';
         }
 
-        // Handle Quest Type View
-        document.getElementById('questType').value = task.isOneTime ? 'onetime' : 'recurring';
+        // Handle Quest Type View & Sub-Quests
+        if (task.isFolder) {
+            document.getElementById('questType').value = 'folder';
+            
+            clearSubQuests();
+            if (task.subQuests && task.subQuests.length > 0) {
+                task.subQuests.forEach(sq => addSubQuestInput(sq.name, sq.completed));
+            } else {
+                addSubQuestInput('Quest 1');
+            }
+        } else {
+            document.getElementById('questType').value = task.isOneTime ? 'onetime' : 'recurring';
+        }
         toggleQuestType(); // Trigger the UI switch visually
 
         if (task.isOneTime) {
@@ -893,13 +1107,35 @@ function fetchAndEditTaskModal(id) {
 
 function toggleQuestType() {
     const type = document.getElementById('questType').value;
+    document.getElementById('oneTimeSettings').classList.add('hidden');
+    document.getElementById('recurringSettings').classList.add('hidden');
+    document.getElementById('folderSettings').classList.add('hidden');
+
     if (type === 'onetime') {
         document.getElementById('oneTimeSettings').classList.remove('hidden');
-        document.getElementById('recurringSettings').classList.add('hidden');
-    } else {
-        document.getElementById('oneTimeSettings').classList.add('hidden');
+    } else if (type === 'recurring') {
         document.getElementById('recurringSettings').classList.remove('hidden');
+    } else if (type === 'folder') {
+        // Show BOTH the deadline options AND the sub-quests list!
+        document.getElementById('oneTimeSettings').classList.remove('hidden');
+        document.getElementById('folderSettings').classList.remove('hidden');
     }
+}
+
+function addSubQuestInput(val = '', isCompleted = false) {
+    const container = document.getElementById('subQuestsList');
+    const div = document.createElement('div');
+    div.className = 'flex gap-2 items-center animate-fade-in';
+    div.innerHTML = `
+        <input type="text" placeholder="Quest name..." value="${val}" data-completed="${isCompleted}" 
+            class="sub-quest-input flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-400 outline-none transition-all text-sm font-medium">
+        <button type="button" onclick="this.parentElement.remove()" class="p-3 text-red-400 hover:bg-red-50 rounded-xl transition-all font-bold" title="Remove">✕</button>
+    `;
+    container.appendChild(div);
+}
+
+function clearSubQuests() {
+    document.getElementById('subQuestsList').innerHTML = '';
 }
 
 function toggleOneTimeInputs() {
@@ -952,6 +1188,93 @@ function toggleLimitInputs() {
     }
 }
 
+function toggleSubQuest(taskId, subIndex) {
+    const transaction = db.transaction([TASK_STORE, META_STORE], "readwrite");
+    const store = transaction.objectStore(TASK_STORE);
+    const metaStore = transaction.objectStore(META_STORE);
+
+    store.get(taskId).onsuccess = (e) => {
+        const task = e.target.result;
+        const now = Date.now();
+
+        // 1. Toggle the specific sub-quest
+        const wasSubCompleted = task.subQuests[subIndex].completed;
+        task.subQuests[subIndex].completed = !wasSubCompleted;
+
+        // 2. Check Folder Status
+        const allDone = task.subQuests.every(sq => sq.completed);
+        const wasFolderCompleted = task.completed;
+
+        task.completed = allDone;
+
+        if (task.completed && !wasFolderCompleted) {
+            task.completedAt = now;
+            task.gemClaimed = false; // Midnight sweeper will delete it and grant gem
+            showToast(`📁 Folder Cleared: ${task.name}!`);
+        } else if (!task.completed && wasFolderCompleted) {
+            task.completedAt = null;
+            task.gemClaimed = false;
+        }
+
+        // 3. Global Streak Logic
+        // Completing ANY sub-quest counts as effort for the day!
+        if (task.subQuests[subIndex].completed) {
+            metaStore.get("lastStreakUpdate").onsuccess = (eDate) => {
+                let lastDate = eDate.target.result || 0;
+                metaStore.get("globalStreak").onsuccess = (eStreak) => {
+                    let globalStreak = eStreak.target.result || 0;
+                    const todayDay = new Date(now).setHours(0, 0, 0, 0);
+                    const lastStreakDay = new Date(lastDate).setHours(0, 0, 0, 0);
+
+                    if (lastDate === 0 || todayDay > lastStreakDay) {
+                        globalStreak += 1;
+                        metaStore.put(globalStreak, "globalStreak");
+                        metaStore.put(now, "lastStreakUpdate");
+                        showToast(`🔥 Daily Streak increased! Sub-quest done!`);
+                    }
+                };
+            };
+        } else {
+            // Unchecking a sub-quest triggers the undo scanner
+            store.getAll().onsuccess = (eTasks) => {
+                const allTasks = eTasks.target.result;
+                const todayDay = new Date(now).setHours(0, 0, 0, 0);
+
+                // Look for any other completed tasks OR completed subquests today
+                const otherProgress = allTasks.some(t => {
+                    if (t.id === task.id) {
+                        // Check remaining subquests in THIS folder
+                        return t.subQuests && t.subQuests.some(sq => sq.completed); 
+                    }
+                    return t.completed && t.completedAt && new Date(t.completedAt).setHours(0, 0, 0, 0) === todayDay;
+                });
+
+                if (!otherProgress) {
+                    metaStore.get("globalStreak").onsuccess = (eStreak) => {
+                        let globalStreak = eStreak.target.result || 0;
+                        if (globalStreak > 0) {
+                            globalStreak -= 1;
+                            metaStore.put(globalStreak, "globalStreak");
+                            const yesterday = now - (24 * 60 * 60 * 1000);
+                            metaStore.put(yesterday, "lastStreakUpdate");
+                            showToast("Undo: Daily Streak reverted.");
+                        }
+                    };
+                }
+            };
+        }
+
+        store.put(task);
+    };
+
+    transaction.oncomplete = () => {
+        refreshTasks(); // Update the main board in the background
+        if (currentFolderViewId === taskId) {
+            renderFolderView(); // Instantly update the checkboxes in the open modal
+        }
+    };
+}
+
 function showToast(msg) {
     const toast = document.getElementById('toast');
     // Ensure you fix the mojibake emojis if they pop up here too!
@@ -969,7 +1292,8 @@ window.addEventListener('keydown', (e) => {
         closeTaskModal();
         closeDeleteModal();
         closeSettings();
-        closeShopModal();     // <-- Added this!
+        closeShopModal();
+        closeFolderViewModal();
     }
 });
 
@@ -985,58 +1309,46 @@ function closeSettings() {
     document.getElementById('settingsModal').classList.add('hidden');
 }
 
-function exportData() {
+async function exportData() {
     const transaction = db.transaction([TASK_STORE, META_STORE], "readonly");
     const taskStore = transaction.objectStore(TASK_STORE);
     const metaStore = transaction.objectStore(META_STORE);
 
-    const backup = { tasks: [], metadata: {} };
-
-    taskStore.getAll().onsuccess = (e) => {
-        backup.tasks = e.target.result;
-
-        metaStore.get("gems").onsuccess = (e1) => {
-            backup.metadata.gems = e1.target.result || 0;
-            metaStore.get("globalFreezes").onsuccess = (e2) => {
-                backup.metadata.globalFreezes = e2.target.result || 0;
-                metaStore.get("activeCapacity").onsuccess = (e3) => {
-                    backup.metadata.activeCapacity = e3.target.result || 2;
-                    metaStore.get("trueMaxFreezes").onsuccess = (e4) => {
-                        backup.metadata.trueMaxFreezes = e4.target.result || 2;
-                        metaStore.get("lastFreezeRecharge").onsuccess = (e5) => {
-                            backup.metadata.lastFreezeRecharge = e5.target.result || null;
-                            metaStore.get("chestCombo").onsuccess = (e6) => {
-                                backup.metadata.chestCombo = e6.target.result || 0;
-                                metaStore.get("lastChestOpenDate").onsuccess = (e7) => {
-                                    backup.metadata.lastChestOpenDate = e7.target.result || null;
-                                    metaStore.get("chestEnabled").onsuccess = (e8) => {
-                                        backup.metadata.chestEnabled = e8.target.result || null;
-                                        metaStore.get("yearBadgeEnabled").onsuccess = (e9) => {
-                                            backup.metadata.yearBadgeEnabled = e9.target.result || null;
-
-
-                                            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-                                            const url = URL.createObjectURL(blob);
-                                            const a = document.createElement("a");
-                                            a.href = url;
-                                            // Get local time and format it to be file-system safe (no colons)
-                                            const now = new Date();
-                                            const tzoffset = now.getTimezoneOffset() * 60000;
-                                            const localTime = new Date(now.getTime() - tzoffset).toISOString().slice(0, 19).replace('T', " at ").replace(/:/g, '-');
-
-                                            a.download = `Game of Life ${localTime}.json`;
-                                            a.click();
-                                            showToast("Save file downloaded successfully!");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+    try {
+        const backup = {
+            tasks: await dbGetAll(taskStore),
+            metadata: {
+                gems: await dbGet(metaStore, "gems", 0),
+                globalFreezes: await dbGet(metaStore, "globalFreezes", 0),
+                activeCapacity: await dbGet(metaStore, "activeCapacity", 2),
+                trueMaxFreezes: await dbGet(metaStore, "trueMaxFreezes", 2),
+                lastFreezeRecharge: await dbGet(metaStore, "lastFreezeRecharge", null),
+                chestCombo: await dbGet(metaStore, "chestCombo", 0),
+                lastChestOpenDate: await dbGet(metaStore, "lastChestOpenDate", null),
+                chestEnabled: await dbGet(metaStore, "chestEnabled", false),
+                yearBadgeEnabled: await dbGet(metaStore, "yearBadgeEnabled", false),
+                globalStreak: await dbGet(metaStore, "globalStreak", 0),
+                lastStreakUpdate: await dbGet(metaStore, "lastStreakUpdate", 0)
             }
         };
-    };
+
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        
+        const now = new Date();
+        const tzoffset = now.getTimezoneOffset() * 60000;
+        const localTime = new Date(now.getTime() - tzoffset).toISOString().slice(0, 19).replace('T', " at ").replace(/:/g, '-');
+
+        a.download = `Game of Life ${localTime}.json`;
+        a.click();
+        showToast("Save file downloaded successfully!");
+        
+    } catch (error) {
+        console.error("Export failed:", error);
+        showToast("Error creating backup.");
+    }
 }
 
 function importData(event) {
