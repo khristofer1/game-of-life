@@ -735,9 +735,17 @@ function switchTab(tabId) {
 
 // #region 5: QUEST MODAL & FORMS
 
+function autoResize(textarea) {
+    // Briefly reset height to auto to calculate shrinkage
+    textarea.style.height = 'auto';
+    // Set the height to exactly match the scrollable content height
+    textarea.style.height = textarea.scrollHeight + 'px';
+}
+
 function openTaskModal() {
     document.getElementById('taskModal').classList.remove('hidden');
     document.getElementById('taskForm').reset();
+    document.getElementById('taskDesc').style.height = 'auto';
     document.getElementById('editTaskId').value = '';
     document.getElementById('taskModalTitle').innerText = 'New Quest';
 
@@ -754,6 +762,9 @@ function openTaskModal() {
     // Force the UI to match the freshly reset form
     toggleQuestType();
     toggleLimitType();
+    setTimeout(() => {
+        document.getElementById('taskName').focus();
+    }, 50);
     if (typeof toggleOneTimeInputs === "function") toggleOneTimeInputs();
 }
 
@@ -829,6 +840,7 @@ function fetchAndEditTaskModal(id) {
         }
 
         document.getElementById('taskModal').classList.remove('hidden');
+        autoResize(document.getElementById('taskDesc'));
     };
 }
 
