@@ -172,216 +172,224 @@ function refreshTasks() {
     metaStore.get("gems").onsuccess = (eGems) => {
         let gems = eGems.target.result || 0;
         metaStore.get("globalFreezes").onsuccess = (eFreezes) => {
-            let globalFreezes = eFreezes.target.result || 0;
-            metaStore.get("activeCapacity").onsuccess = (eCap) => {
-                let activeCapacity = eCap.target.result || 2;
-                metaStore.get("trueMaxFreezes").onsuccess = (eMax) => {
-                    let trueMaxFreezes = eMax.target.result || 2;
-                    // NEW CHEST DATA:
-                    metaStore.get("lastChestOpenDate").onsuccess = (eChestD) => {
-                        let lastChestOpenDate = eChestD.target.result || 0;
-                        metaStore.get("chestCombo").onsuccess = (eCombo) => {
-                            let chestCombo = eCombo.target.result || 0;
-                            metaStore.get("chestEnabled").onsuccess = (eChestOn) => {
-                                let chestEnabled = eChestOn.target.result || false;
-                                metaStore.get("yearBadgeEnabled").onsuccess = (eBadgeOn) => {
-                                    let yearBadgeEnabled = eBadgeOn.target.result || false;
+        let globalFreezes = eFreezes.target.result || 0;
+        metaStore.get("activeCapacity").onsuccess = (eCap) => {
+        let activeCapacity = eCap.target.result || 2;
+        metaStore.get("trueMaxFreezes").onsuccess = (eMax) => {
+        let trueMaxFreezes = eMax.target.result || 2;
+        // NEW CHEST DATA:
+        metaStore.get("lastChestOpenDate").onsuccess = (eChestD) => {
+        let lastChestOpenDate = eChestD.target.result || 0;
+        metaStore.get("chestCombo").onsuccess = (eCombo) => {
+        let chestCombo = eCombo.target.result || 0;
+        metaStore.get("chestEnabled").onsuccess = (eChestOn) => {
+        let chestEnabled = eChestOn.target.result || false;
+        metaStore.get("yearBadgeEnabled").onsuccess = (eBadgeOn) => {
+        let yearBadgeEnabled = eBadgeOn.target.result || false;
 
-                                    store.getAll().onsuccess = (eTasks) => {
-                                        let tasks = eTasks.target.result;
-                                        const now = Date.now();
-                                        let totalGemsEarned = 0;
-                                        let freezesUsed = 0;
+        store.getAll().onsuccess = (eTasks) => {
+            let tasks = eTasks.target.result;
+            const now = Date.now();
+            let totalGemsEarned = 0;
+            let freezesUsed = 0;
 
-                                        let veteranFound = false;
-                                        tasks.forEach(task => {
-                                            const isPending = task.startDate && now < task.startDate;
-                                            if (!task.isArchived && !isPending && task.streak >= 180) veteranFound = true;
-                                        });
+            let veteranFound = false;
+            tasks.forEach(task => {
+                const isPending = task.startDate && now < task.startDate;
+                if (!task.isArchived && !isPending && task.streak >= 180) veteranFound = true;
+            });
 
-                                        if (!veteranFound && trueMaxFreezes === 5) {
-                                            trueMaxFreezes = 2;
-                                            if (activeCapacity > 2) activeCapacity = 2;
-                                            if (globalFreezes > 2) globalFreezes = 2;
-                                            showToast("⚠️ Veteran streak lost. True capacity reduced to 2.");
-                                        } else if (veteranFound && trueMaxFreezes === 2) {
-                                            trueMaxFreezes = 5;
-                                            globalFreezes += 3;
-                                            showToast("🔥 UNBELIEVABLE! 180 Day Streak. Expansion Unlocked!");
-                                        }
+            if (!veteranFound && trueMaxFreezes === 5) {
+                trueMaxFreezes = 2;
+                if (activeCapacity > 2) activeCapacity = 2;
+                if (globalFreezes > 2) globalFreezes = 2;
+                showToast("⚠️ Veteran streak lost. True capacity reduced to 2.");
+            } else if (veteranFound && trueMaxFreezes === 2) {
+                trueMaxFreezes = 5;
+                globalFreezes += 3;
+                showToast("🔥 UNBELIEVABLE! 180 Day Streak. Expansion Unlocked!");
+            }
 
-                                        let usableFreezes = Math.min(globalFreezes, activeCapacity);
+            let usableFreezes = Math.min(globalFreezes, activeCapacity);
 
-                                        tasks.forEach(task => {
-                                            if (task.isArchived) return;
+            tasks.forEach(task => {
+                if (task.isArchived) return;
 
-                                            const isPending = task.startDate && now < task.startDate;
+                const isPending = task.startDate && now < task.startDate;
 
-                                            if (isPending) {
-                                                task.energyPercent = 100;
-                                                return;
-                                            }
+                if (isPending) {
+                    task.energyPercent = 100;
+                    return;
+                }
 
-                                            let timeLeft = task.deadline - now;
+                let timeLeft = task.deadline - now;
+                const todayDay = new Date(now).setHours(0, 0, 0, 0);
 
-                                            // --- ONE-TIME QUEST LOGIC ---
-                                            if (task.isOneTime) {
+                // --- NEW: UNIVERSAL MIDNIGHT SWEEPER ---
+                if (task.completed && !task.gemClaimed && task.completedAt) {
+                    const completedDay = new Date(task.completedAt).setHours(0, 0, 0, 0);
 
-                                                // NEW: The Midnight Sweeper (Next-Day Cleanup)
-                                                if (task.completed) {
-                                                    // Fallback to deadline if you completed a quest before we added the timestamp code
-                                                    const stamp = task.completedAt || task.deadline;
-
-                                                    // Strip the hours/minutes away to compare pure calendar days
-                                                    const completedDay = new Date(stamp).setHours(0, 0, 0, 0);
-                                                    const todayDay = new Date(now).setHours(0, 0, 0, 0);
-
-                                                    if (todayDay > completedDay) {
-                                                        totalGemsEarned += 1;   // The Bounty!
-                                                        store.delete(task.id);  // Evaporate the quest
-                                                        showToast(`Bounty Cleared: ${task.name}! +1 💎`);
-                                                        return;
-                                                    }
-                                                    return; // If completed but still today, let it rest in the Completed drawer
-                                                }
-
-                                                // Failed Quest Logic
-                                                if (timeLeft <= 0 && !task.completed) {
-                                                    if (usableFreezes > 0) { usableFreezes--; globalFreezes--; freezesUsed++; }
-                                                    task.isArchived = true;
-                                                    task.energyPercent = 0;
-                                                    store.put(task);
-                                                    showToast(`Failed one-time quest: ${task.name}`);
-                                                } else if (timeLeft > 0 && !task.completed) {
-                                                    task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
-                                                }
-                                                return; // CRITICAL: Skip the recurring math below
-                                            }
-
-                                            // --- RECURRING LOGIC ---
-                                            if (task.hasLimit && now >= task.expireAt) {
-                                                if (!task.completed && now >= task.deadline) {
-                                                    if (usableFreezes > 0) { usableFreezes--; globalFreezes--; freezesUsed++; }
-                                                    else { task.streak = 0; }
-                                                }
-                                                totalGemsEarned += task.streak;
-                                                store.delete(task.id);
-                                                showToast(`Quest Ended: ${task.name}! Earned ${task.streak} 💎`);
-                                                return;
-                                            }
-
-                                            if (timeLeft <= 0) {
-                                                const timeOverdue = now - task.deadline;
-                                                const cyclesMissed = Math.floor(timeOverdue / task.durationMs) + 1;
-
-                                                for (let i = 0; i < cyclesMissed; i++) {
-                                                    if (!task.completed) {
-                                                        if (usableFreezes > 0) { usableFreezes--; globalFreezes--; freezesUsed++; }
-                                                        else { task.streak = 0; }
-                                                    }
-                                                    task.completed = false;
-                                                }
-                                                task.createdAt = task.createdAt + (cyclesMissed * task.durationMs);
-                                                task.deadline = task.deadline + (cyclesMissed * task.durationMs);
-                                                timeLeft = task.deadline - now;
-                                                store.put(task);
-                                            }
-
-                                            if (timeLeft > 0 && !task.completed) {
-                                                task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
-                                            }
-                                        });
-
-                                        metaStore.put(gems + totalGemsEarned, "gems");
-                                        metaStore.put(globalFreezes, "globalFreezes");
-                                        metaStore.put(activeCapacity, "activeCapacity");
-                                        metaStore.put(trueMaxFreezes, "trueMaxFreezes");
-
-                                        document.getElementById('gemCount').innerText = gems + totalGemsEarned;
-
-                                        // --- NEW: Dynamic Skill Tree Logic ---
-                                        const highestStreak = tasks.length > 0 ? Math.max(...tasks.map(t => t.streak)) : 0;
-                                        const highestStreakEl = document.getElementById('highestStreak');
-                                        if (highestStreakEl) highestStreakEl.innerText = highestStreak;
-
-                                        // Auto-Lock features if the user deletes a task and loses their highest streak!
-                                        let stateChanged = false;
-                                        if (highestStreak < 30 && chestEnabled) { chestEnabled = false; metaStore.put(false, "chestEnabled"); stateChanged = true; }
-                                        if (highestStreak < 180 && trueMaxFreezes === 5) { trueMaxFreezes = 2; activeCapacity = 2; globalFreezes = Math.min(globalFreezes, 2); metaStore.put(2, "trueMaxFreezes"); metaStore.put(2, "activeCapacity"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("⚠️ Streak fell below 180. Freezes locked."); }
-                                        if (highestStreak >= 180 && trueMaxFreezes === 2) { trueMaxFreezes = 5; globalFreezes += 3; metaStore.put(5, "trueMaxFreezes"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("🔥 180 Streak! Freeze capacity expanded to 5."); }
-                                        if (highestStreak < 365 && yearBadgeEnabled) { yearBadgeEnabled = false; metaStore.put(false, "yearBadgeEnabled"); stateChanged = true; }
-
-                                        // Year Badge UI Calculation
-                                        const badgeEl = document.getElementById('yearBadge');
-                                        if (yearBadgeEnabled && badgeEl) {
-                                            const years = Math.floor(highestStreak / 365);
-                                            badgeEl.innerText = `${years}+`;
-                                            badgeEl.classList.remove('hidden');
-                                        } else if (badgeEl) {
-                                            badgeEl.classList.add('hidden');
-                                        }
-
-                                        // Chest Visibility UI
-                                        const todayDay = new Date(now).setHours(0, 0, 0, 0);
-                                        const lastOpenDay = new Date(lastChestOpenDate).setHours(0, 0, 0, 0);
-
-                                        const chestContainer = document.getElementById('floatingChestContainer');
-                                        // Hide everything first
-                                        ['chestNormal', 'chestMystery', 'chestGold', 'chestGoldMystery'].forEach(id => {
-                                            const el = document.getElementById(id);
-                                            if (el) el.classList.add('hidden');
-                                        });
-
-                                        // Only show chest if the Toggle is ON, Highest Streak > 0, and it's a new day
-                                        if (chestEnabled && highestStreak > 0 && todayDay > lastOpenDay) {
-                                            chestContainer.classList.remove('hidden');
-
-                                            const oneDay = 24 * 60 * 60 * 1000;
-                                            let displayCombo = (lastChestOpenDate !== 0 && (todayDay - lastOpenDay > oneDay)) ? 0 : chestCombo;
-
-                                            const textId = yearBadgeEnabled ? 'chestGoldComboText' : 'chestComboText';
-                                            const elText = document.getElementById(textId);
-                                            if (elText) elText.innerText = `Combo: ${displayCombo}/6`;
-
-                                            if (displayCombo >= 6) {
-                                                document.getElementById(yearBadgeEnabled ? 'chestGoldMystery' : 'chestMystery').classList.remove('hidden');
-                                            } else {
-                                                document.getElementById(yearBadgeEnabled ? 'chestGold' : 'chestNormal').classList.remove('hidden');
-                                            }
-                                        } else {
-                                            chestContainer.classList.add('hidden');
-                                        }
-
-                                        const shopGem = document.getElementById('shopGemCount');
-                                        if (shopGem) {
-                                            shopGem.innerText = gems + totalGemsEarned;
-                                            document.getElementById('shopFreezeCount').innerText = globalFreezes;
-                                            document.getElementById('shopMaxFreezes').innerText = trueMaxFreezes;
-                                        }
-
-                                        if (freezesUsed > 0) showToast(`Used ${freezesUsed} ❄️ to protect your streaks!`);
-
-                                        const activeQuests = tasks.filter(t => !t.completed && !t.isArchived && !(t.startDate && now < t.startDate))
-                                            .sort((a, b) => a.deadline - b.deadline);
-
-                                        const comingQuests = tasks.filter(t => !t.completed && !t.isArchived && (t.startDate && now < t.startDate))
-                                            .sort((a, b) => a.startDate - b.startDate);
-
-                                        const finishedQuests = tasks.filter(t => t.completed && !t.isArchived)
-                                            .sort((a, b) => a.deadline - b.deadline);
-
-                                        renderTaskCards(activeQuests, 'activeTasksList', 'No active quests for today.');
-                                        renderTaskCards(comingQuests, 'comingTasksList', 'No upcoming quests.');
-                                        renderTaskCards(finishedQuests, 'completedTasksList', 'No quests conquered yet.');
-                                    };
-                                }
-                            }
+                    // If a day has passed since you completed it...
+                    if (todayDay > completedDay) {
+                        totalGemsEarned += 1;   
+                        task.gemClaimed = true; 
+                        
+                        if (task.isOneTime) {
+                            store.delete(task.id);  // One-time quests evaporate
+                            showToast(`Bounty Cleared: ${task.name}! +1 💎`);
+                            return; // Skip the rest of the logic
+                        } else {
+                            store.put(task); // Recurring quests stay, but claim status is saved
+                            showToast(`Daily Reward: ${task.name}! +1 💎`);
                         }
                     }
                 }
-            }
-        }
-    };
+
+                // --- ONE-TIME QUEST LOGIC ---
+                if (task.isOneTime) {
+                    if (timeLeft <= 0 && !task.completed) {
+                        task.isArchived = true;
+                        task.energyPercent = 0;
+                        store.put(task);
+                        showToast(`Failed one-time quest: ${task.name}`);
+                    } else if (timeLeft > 0 && !task.completed) {
+                        task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
+                    }
+                    return; 
+                }
+
+                // --- RECURRING LOGIC ---
+                if (task.hasLimit && now >= task.expireAt) {
+                    store.delete(task.id);
+                    return;
+                }
+
+                if (timeLeft <= 0) {
+                    const timeOverdue = now - task.deadline;
+                    const cyclesMissed = Math.floor(timeOverdue / task.durationMs) + 1;
+
+                    task.completed = false;
+                    task.gemClaimed = false; // Reset claim status for the new cycle!
+                    task.completedAt = null;
+                    
+                    task.createdAt = task.createdAt + (cyclesMissed * task.durationMs);
+                    task.deadline = task.deadline + (cyclesMissed * task.durationMs);
+                    timeLeft = task.deadline - now;
+                    store.put(task);
+                }
+
+                if (timeLeft > 0 && !task.completed) {
+                    task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
+                }
+            });
+
+            // --- THE GLOBAL FREEZE ENGINE ---
+        metaStore.get("lastStreakUpdate").onsuccess = (eDate) => {
+            let lastStreakUpdate = eDate.target.result || 0;
+            metaStore.get("globalStreak").onsuccess = (eStreak) => {
+                let globalStreak = eStreak.target.result || 0;
+
+                const todayDay = new Date(now).setHours(0, 0, 0, 0);
+                const lastStreakDay = new Date(lastStreakUpdate).setHours(0, 0, 0, 0);
+                const oneDay = 24 * 60 * 60 * 1000;
+
+                // Did we miss yesterday?
+                if (lastStreakUpdate !== 0 && globalStreak > 0 && todayDay > lastStreakDay) {
+                    const daysPassed = Math.round((todayDay - lastStreakDay) / oneDay);
+                    
+                    if (daysPassed > 1) { // 2+ days means at least yesterday was completely missed!
+                        const daysMissed = daysPassed - 1;
+                        let usableFreezes = Math.min(globalFreezes, activeCapacity);
+
+                        if (usableFreezes >= daysMissed) {
+                            // Protected by the Stash!
+                            globalFreezes -= daysMissed;
+                            freezesUsed += daysMissed;
+                            lastStreakUpdate += (daysMissed * oneDay); // Fast-forward time so we don't double-charge
+                            metaStore.put(lastStreakUpdate, "lastStreakUpdate");
+                        } else {
+                            // Streak Broken!
+                            globalStreak = 0;
+                            globalFreezes -= usableFreezes; // Burn whatever was left in the active slot
+                            metaStore.put(0, "globalStreak");
+                            showToast("💔 You missed a day. Global Streak broken.");
+                        }
+                    }
+                }
+
+                // 1. Save all updated metadata safely
+                metaStore.put(gems + totalGemsEarned, "gems");
+                metaStore.put(globalFreezes, "globalFreezes");
+                metaStore.put(activeCapacity, "activeCapacity");
+                metaStore.put(trueMaxFreezes, "trueMaxFreezes");
+
+                // 2. Update UI Top Bar
+                document.getElementById('gemCount').innerText = gems + totalGemsEarned;
+                
+                const highestStreak = globalStreak;
+                const highestStreakEl = document.getElementById('highestStreak');
+                if (highestStreakEl) highestStreakEl.innerText = highestStreak;
+
+                // 3. Auto-Lock logic (Skill Tree)
+                let stateChanged = false;
+                if (highestStreak < 30 && chestEnabled) { chestEnabled = false; metaStore.put(false, "chestEnabled"); stateChanged = true; }
+                if (highestStreak < 180 && trueMaxFreezes === 5) { trueMaxFreezes = 2; activeCapacity = 2; globalFreezes = Math.min(globalFreezes, 2); metaStore.put(2, "trueMaxFreezes"); metaStore.put(2, "activeCapacity"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("⚠️ Streak fell below 180. Freezes locked."); }
+                if (highestStreak >= 180 && trueMaxFreezes === 2) { trueMaxFreezes = 5; globalFreezes += 3; metaStore.put(5, "trueMaxFreezes"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("🔥 180 Streak! Capacity expanded to 5."); }
+                if (highestStreak < 365 && yearBadgeEnabled) { yearBadgeEnabled = false; metaStore.put(false, "yearBadgeEnabled"); stateChanged = true; }
+
+                const badgeEl = document.getElementById('yearBadge');
+                if (yearBadgeEnabled && badgeEl) {
+                    const years = Math.floor(highestStreak / 365);
+                    badgeEl.innerText = `${years}+`;
+                    badgeEl.classList.remove('hidden');
+                } else if (badgeEl) {
+                    badgeEl.classList.add('hidden');
+                }
+
+                // 4. Chest UI
+                const chestContainer = document.getElementById('floatingChestContainer');
+                ['chestNormal', 'chestMystery', 'chestGold', 'chestGoldMystery'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.classList.add('hidden');
+                });
+
+                const lastOpenDay = new Date(lastChestOpenDate).setHours(0, 0, 0, 0);
+                if (chestEnabled && highestStreak > 0 && todayDay > lastOpenDay) {
+                    chestContainer.classList.remove('hidden');
+                    let displayCombo = (lastChestOpenDate !== 0 && (todayDay - lastOpenDay > oneDay)) ? 0 : chestCombo;
+                    const textId = yearBadgeEnabled ? 'chestGoldComboText' : 'chestComboText';
+                    const elText = document.getElementById(textId);
+                    if (elText) elText.innerText = `Combo: ${displayCombo}/6`;
+
+                    if (displayCombo >= 6) {
+                        document.getElementById(yearBadgeEnabled ? 'chestGoldMystery' : 'chestMystery').classList.remove('hidden');
+                    } else {
+                        document.getElementById(yearBadgeEnabled ? 'chestGold' : 'chestNormal').classList.remove('hidden');
+                    }
+                } else {
+                    chestContainer.classList.add('hidden');
+                }
+
+                const shopGem = document.getElementById('shopGemCount');
+                if (shopGem) {
+                    shopGem.innerText = gems + totalGemsEarned;
+                    document.getElementById('shopFreezeCount').innerText = globalFreezes;
+                    document.getElementById('shopMaxFreezes').innerText = trueMaxFreezes;
+                }
+
+                if (freezesUsed > 0) showToast(`Used ${freezesUsed} ❄️ to protect your Global Streak!`);
+
+                // 5. Render Board
+                const activeQuests = tasks.filter(t => !t.completed && !t.isArchived && !(t.startDate && now < t.startDate)).sort((a, b) => a.deadline - b.deadline);
+                const comingQuests = tasks.filter(t => !t.completed && !t.isArchived && (t.startDate && now < t.startDate)).sort((a, b) => a.startDate - b.startDate);
+                const finishedQuests = tasks.filter(t => t.completed && !t.isArchived).sort((a, b) => a.deadline - b.deadline);
+
+                renderTaskCards(activeQuests, 'activeTasksList', 'No active quests for today.');
+                renderTaskCards(comingQuests, 'comingTasksList', 'No upcoming quests.');
+                renderTaskCards(finishedQuests, 'completedTasksList', 'No quests conquered yet.');
+            }; // Closes the globalStreak fetch
+        }; // Closes the lastStreakUpdate fetch
+    }}}}}}}}};
 }
 
 function saveTask() {
@@ -537,8 +545,9 @@ function saveTask() {
 }
 
 function toggleTask(id) {
-    const transaction = db.transaction([TASK_STORE], "readwrite");
+    const transaction = db.transaction([TASK_STORE, META_STORE], "readwrite");
     const store = transaction.objectStore(TASK_STORE);
+    const metaStore = transaction.objectStore(META_STORE);
 
     store.get(id).onsuccess = (e) => {
         const task = e.target.result;
@@ -546,18 +555,66 @@ function toggleTask(id) {
 
         if (!task.completed) {
             task.completed = true;
-            task.completedAt = now; // <-- NEW: Stamp the exact moment of victory
-            task.streak += 1;
+            task.completedAt = now;
+            task.gemClaimed = false; // Prep for the midnight sweep!
 
-            // Freeze the exact energy percentage before saving to DB
             const timeLeft = task.deadline - now;
             if (timeLeft > 0) {
                 task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
             }
+
+            // --- GLOBAL STREAK ADD LOGIC ---
+            metaStore.get("lastStreakUpdate").onsuccess = (eDate) => {
+                let lastDate = eDate.target.result || 0;
+                metaStore.get("globalStreak").onsuccess = (eStreak) => {
+                    let globalStreak = eStreak.target.result || 0;
+
+                    const todayDay = new Date(now).setHours(0, 0, 0, 0);
+                    const lastStreakDay = new Date(lastDate).setHours(0, 0, 0, 0);
+
+                    // If this is the FIRST task completed today, boost the streak!
+                    if (lastDate === 0 || todayDay > lastStreakDay) {
+                        globalStreak += 1;
+                        metaStore.put(globalStreak, "globalStreak");
+                        metaStore.put(now, "lastStreakUpdate");
+                        showToast(`🔥 Daily Streak increased to ${globalStreak}!`);
+                    }
+                };
+            };
         } else {
             task.completed = false;
-            task.completedAt = null; // <-- NEW: Erase the timestamp if you undo it
-            task.streak = Math.max(0, task.streak - 1);
+            task.completedAt = null;
+            task.gemClaimed = false;
+
+            // --- GLOBAL STREAK UNDO LOGIC ---
+            store.getAll().onsuccess = (eTasks) => {
+                const allTasks = eTasks.target.result;
+                const todayDay = new Date(now).setHours(0, 0, 0, 0);
+
+                // Check if there are ANY OTHER tasks completed today
+                const otherCompletedTasks = allTasks.some(t => 
+                    t.id !== task.id && 
+                    t.completed && 
+                    t.completedAt && 
+                    new Date(t.completedAt).setHours(0, 0, 0, 0) === todayDay
+                );
+
+                // If this was the ONLY task done today, revoke the streak!
+                if (!otherCompletedTasks) {
+                    metaStore.get("globalStreak").onsuccess = (eStreak) => {
+                        let globalStreak = eStreak.target.result || 0;
+                        if (globalStreak > 0) {
+                            globalStreak -= 1;
+                            metaStore.put(globalStreak, "globalStreak");
+                            
+                            // Roll the calendar back to yesterday so you don't get locked out of re-earning it
+                            const yesterday = now - (24 * 60 * 60 * 1000);
+                            metaStore.put(yesterday, "lastStreakUpdate");
+                            showToast("Undo: Daily Streak reverted.");
+                        }
+                    };
+                }
+            };
         }
 
         store.put(task);
@@ -644,9 +701,6 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
                 <div class="flex-1 min-w-0">
                     <h3 class="text-lg font-bold text-dark leading-tight">${task.name}</h3>
                     ${task.desc ? `<p class="text-xs text-muted mt-1 line-clamp-2">${task.desc}</p>` : ''}
-                </div>
-                <div class="flex flex-col items-end shrink-0">
-                    <span class="text-xl font-bold ${isPending ? 'text-gray-400' : 'text-dark'} flex items-center gap-1">🔥 ${task.streak}</span>
                 </div>
             </div>
 
@@ -736,10 +790,20 @@ function switchTab(tabId) {
 // #region 5: QUEST MODAL & FORMS
 
 function autoResize(textarea) {
-    // Briefly reset height to auto to calculate shrinkage
+    // 1. Find the modal's scrollable container and save its exact position
+    const scrollContainer = textarea.closest('.overflow-y-auto');
+    const currentScroll = scrollContainer ? scrollContainer.scrollTop : 0;
+
+    // 2. Do the resizing math
+    // Shrinks the text area to the smallest possible height
     textarea.style.height = 'auto';
-    // Set the height to exactly match the scrollable content height
+    // Set the height of that text area based on the scrollHeight property
     textarea.style.height = textarea.scrollHeight + 'px';
+
+    // 3. Instantly force the scrollbar back to where it was
+    if (scrollContainer) {
+        scrollContainer.scrollTop = currentScroll;
+    }
 }
 
 function openTaskModal() {

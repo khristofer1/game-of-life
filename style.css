@@ -944,6 +944,9 @@
   .whitespace-nowrap {
     white-space: nowrap;
   }
+  .whitespace-pre-wrap {
+    white-space: pre-wrap;
+  }
   .text-dark {
     color: var(--color-dark);
   }
