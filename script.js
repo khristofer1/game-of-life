@@ -913,7 +913,7 @@ function renderFolderView() {
                     <textarea rows="1" 
                         placeholder="Add sub-quest..."
                         oninput="autoResize(this)" 
-                        onkeydown="if(event.key === 'Enter') { event.preventDefault(); const ghost = document.getElementById('modalGhostRowInput'); ghost.focus(); setTimeout(() => { const c = ghost.closest('.overflow-y-auto'); if(c) c.scrollTo({top: c.scrollHeight, behavior: 'smooth'}); }, 50); }"
+                        onkeydown="if(event.key === 'Enter') { event.preventDefault(); const val = this.value.trim(); if(val) { this.value = ''; addNewSubQuestFromModal(val); } }"
                         class="flex-1 bg-transparent border-none p-0 focus:ring-0 resize-none overflow-hidden outline-none text-sm font-medium text-dark"></textarea>
                 </div>
             </div>
@@ -950,7 +950,6 @@ function addNewSubQuestFromModal(newName) {
             refreshTasks();
             renderFolderView();
             
-            // Rapid-Fire UX: Auto-focus the new empty row so you can keep typing!
             // Rapid-Fire UX: Auto-focus the new empty row and scroll to the absolute bottom!
             setTimeout(() => {
                 const textareas = document.querySelectorAll('#folderViewList textarea');
@@ -995,7 +994,7 @@ function deleteSubQuestFromModal(taskId, subIndex) {
     store.get(taskId).onsuccess = (e) => {
         const task = e.target.result;
         
-        if (task.subQuests.length <= 1) {
+        if (task.isFolder && task.subQuests.length <= 1) {
             showToast("Folders must have at least one sub-quest.");
             return; 
         }
@@ -1030,6 +1029,8 @@ function deleteSubQuestFromModal(taskId, subIndex) {
 function openTaskModal() {
     document.getElementById('taskModal').classList.remove('hidden');
     document.getElementById('taskForm').reset();
+    const ghostRow = document.getElementById('modalGhostRowInput');
+    if (ghostRow) { ghostRow.value = ''; autoResize(ghostRow); }
     document.getElementById('taskDesc').style.height = 'auto';
     document.getElementById('editTaskId').value = '';
     document.getElementById('taskModalTitle').innerText = 'New Quest';
@@ -1163,13 +1164,13 @@ function addSubQuestInput(val = '', isCompleted = false, doFocus = false) {
 
     div.innerHTML = `
         <div class="flex items-start gap-3 flex-1 min-w-0 pt-0.5">
-            <div class="w-6 h-6 shrink-0 rounded-lg border-2 flex items-center justify-center cursor-pointer transition-all ${completedClass}" onclick="toggleModalSubQuest(this)">
+            <div class="w-6 h-6 shrink-0 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all ${completedClass}" onclick="toggleModalSubQuest(this)">
                 <svg class="w-4 h-4 ${checkOpacity} transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
             </div>
             
             <textarea rows="1" placeholder="Quest name..." data-completed="${isCompleted}" 
                 oninput="autoResize(this)" 
-                onkeydown="if(event.key === 'Enter') { event.preventDefault(); document.getElementById('modalGhostRowInput').focus(); }"
+                onkeydown="if(event.key === 'Enter') { event.preventDefault(); const ghost = document.getElementById('modalGhostRowInput'); ghost.focus(); setTimeout(() => { const c = ghost.closest('.overflow-y-auto'); if(c) c.scrollTo({top: c.scrollHeight, behavior: 'smooth'}); }, 50); }"
                 class="sub-quest-input flex-1 bg-transparent border-none p-0 focus:ring-0 resize-none overflow-hidden outline-none text-sm font-medium transition-all ${textClass}">${safeVal}</textarea>
         </div>
         
