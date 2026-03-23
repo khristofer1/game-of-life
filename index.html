@@ -125,7 +125,7 @@
                         <select id="questType" onchange="toggleQuestType()"
                             class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark cursor-pointer">
                             <option value="onetime">🎯 One-Time Quest</option>
-                            <option value="recurring">🔁 Recurring Habit</option>
+                            <option value="recurring">🔁 Recurring Quest</option>
                             <option value="folder">📁 Quest Folder</option>
                         </select>
                     </div>
@@ -222,12 +222,23 @@
                     <div id="folderSettings" class="hidden space-y-6">
                         <div class="pt-2">
                             <label class="block text-sm font-semibold text-dark mb-3">Sub-Quests</label>
-                            <div id="subQuestsList" class="space-y-3 mb-4">
+                            
+                            <div id="subQuestsList" class="space-y-3 mb-4"></div>
+                            
+                            <div class="flex items-start justify-between p-2 rounded-xl transition-all border border-transparent mt-1 group">
+                                <div class="flex items-start gap-3 flex-1 min-w-0 pt-0.5">
+                                    <div class="w-6 h-6 shrink-0 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4"></path></svg>
+                                    </div>
+                                    <textarea rows="1" 
+                                        id="modalGhostRowInput"
+                                        data-completed="false"
+                                        placeholder="Add sub-quest..."
+                                        oninput="autoResize(this)"
+                                        onkeydown="if(event.key === 'Enter') { event.preventDefault(); const val = this.value.trim(); if(val) { addSubQuestInput(val, false, false); this.value = ''; autoResize(this); setTimeout(() => { const c = this.closest('.overflow-y-auto'); if(c) c.scrollTo({top: c.scrollHeight, behavior: 'smooth'}); }, 50); } }"
+                                        class="sub-quest-input flex-1 bg-transparent border-none p-0 focus:ring-0 resize-none overflow-hidden outline-none text-sm font-medium text-dark"></textarea>
                                 </div>
-                            <button type="button" onclick="addSubQuestInput()" 
-                                class="w-full py-3 border-2 border-dashed border-gray-200 text-gray-400 rounded-2xl font-bold hover:border-orange-400 hover:text-orange-500 transition-all active:scale-95">
-                                + Add Sub-Quest
-                            </button>
+                            </div>
                         </div>
                     </div>
                 </form>
@@ -253,7 +264,10 @@
             
             <div id="folderViewList" class="space-y-1 overflow-y-auto custom-scrollbar pr-2 pb-2"></div>
             
-            <button onclick="closeFolderViewModal()" class="w-full mt-4 bg-gray-100 text-dark px-4 py-3 rounded-2xl font-semibold hover:bg-gray-200 transition-colors active:scale-95 shrink-0 text-sm">Close Folder</button>
+            <div class="flex gap-3 mt-4 shrink-0 w-full">
+                <button onclick="closeFolderViewModal()" class="flex-1 bg-gray-100 text-dark px-4 py-3 rounded-2xl font-semibold hover:bg-gray-200 transition-colors active:scale-95 text-sm">Close</button>
+                <button id="folderCompleteBtn" onclick="completeQuestFromModal()" class="flex-1 bg-green-500 text-white px-4 py-3 rounded-2xl font-semibold hover:bg-green-600 transition-colors active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed">Complete</button>
+            </div>
         </div>
     </div>
 

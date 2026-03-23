@@ -234,8 +234,13 @@ async function refreshTasks() {
                         showToast(`Bounty Cleared: ${task.name}! +1 💎`);
                         return; 
                     } else {
-                        store.put(task); 
-                        showToast(`Daily Reward: ${task.name}! +1 💎`);
+                        // Only award a gem here if it DOES NOT have subquests. Subquests reward on cycle reset!
+                        if (!task.subQuests || task.subQuests.length === 0) {
+                            totalGemsEarned += 1;   
+                            task.gemClaimed = true; 
+                            store.put(task); 
+                            showToast(`Daily Reward: ${task.name}! +1 💎`);
+                        }
                     }
                 }
             }
@@ -262,6 +267,17 @@ async function refreshTasks() {
             if (timeLeft <= 0) {
                 const timeOverdue = now - task.deadline;
                 const cyclesMissed = Math.floor(timeOverdue / task.durationMs) + 1;
+
+                // --- NEW: REWARD AND REMOVE SUBQUESTS ON SCHEDULE RESET ---
+                if (task.subQuests && task.subQuests.length > 0) {
+                    const completedSubs = task.subQuests.filter(sq => sq.completed).length;
+                    if (completedSubs > 0) {
+                        totalGemsEarned += completedSubs; // +1 Gem per completed sub-quest!
+                        // Erase the completed ones so the fresh card is clean
+                        task.subQuests = task.subQuests.filter(sq => !sq.completed);
+                        showToast(`Routine Cleared: ${task.name}! +${completedSubs} 💎`);
+                    }
+                }
 
                 task.completed = false;
                 task.gemClaimed = false; 
@@ -408,6 +424,17 @@ function saveTask() {
     let oneTimeData = null; 
     let subQuests = [];
 
+    // --- EXTRACT SUB-QUESTS FIRST ---
+    if (questTypeValue === 'folder' || questTypeValue === 'recurring') {
+        const inputs = document.querySelectorAll('.sub-quest-input');
+        inputs.forEach(input => {
+            if (input.value.trim() !== '') {
+                subQuests.push({ name: input.value.trim(), completed: input.getAttribute('data-completed') === 'true' });
+            }
+        });
+        if (isFolder && subQuests.length === 0) return showToast("Folders must have at least one sub-quest.");
+    }
+
     if (isOneTime) {
         const otType = document.getElementById('oneTimeDeadlineType').value;
         if (otType === 'duration') {
@@ -434,16 +461,6 @@ function saveTask() {
         }
         
         displayFreq = isFolder ? "📁 Quest Folder" : "One-Time Quest";
-        
-        if (isFolder) {
-            const inputs = document.querySelectorAll('.sub-quest-input');
-            inputs.forEach(input => {
-                if (input.value.trim() !== '') {
-                    subQuests.push({ name: input.value.trim(), completed: input.getAttribute('data-completed') === 'true' });
-                }
-            });
-            if (subQuests.length === 0) return showToast("Folders must have at least one sub-quest.");
-        }
     } else {
         // --- RECURRING LOGIC ---
         freqNum = parseInt(document.getElementById('taskFreqNum').value);
@@ -628,7 +645,10 @@ function toggleTask(id) {
         store.put(task);
     };
 
-    transaction.oncomplete = () => refreshTasks();
+    transaction.oncomplete = () => {
+        refreshTasks();
+        if (currentFolderViewId === id) renderFolderView();
+    };
 }
 
 let taskIdToDelete = null;
@@ -722,8 +742,7 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
                 </div>
 
                 <div class="flex items-center gap-2 pt-1">
-                    ${task.isFolder ? `
-                    <button onclick="openFolderView(${task.id})" class="check-transition flex-grow flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm whitespace-nowrap bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700">
+                    ${(task.subQuests && task.subQuests.length > 0) ? `<button onclick="openFolderView(${task.id})" class="check-transition flex-grow flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm whitespace-nowrap bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700">
                         Open Quest(s)
                     </button>` : `
                     <button ${btnAction} class="check-transition flex-grow flex items-center justify-center py-3 rounded-xl font-bold text-sm whitespace-nowrap ${btnClass}">
@@ -847,6 +866,20 @@ function renderFolderView() {
         const completedCount = task.subQuests.filter(sq => sq.completed).length;
         document.getElementById('folderViewProgress').innerText = `${completedCount} / ${task.subQuests.length} Quests Completed`;
 
+        // Dynamic Complete Button Logic
+        const completeBtn = document.getElementById('folderCompleteBtn');
+        if (completeBtn) {
+            if (task.completed) {
+                completeBtn.innerText = "✓ Done (Undo)";
+                completeBtn.disabled = false;
+                completeBtn.className = "flex-1 bg-green-100 text-green-700 px-4 py-3 rounded-2xl font-semibold hover:bg-red-100 hover:text-red-600 transition-colors active:scale-95 text-sm";
+            } else {
+                completeBtn.innerText = "Complete";
+                completeBtn.className = "flex-1 bg-green-500 text-white px-4 py-3 rounded-2xl font-semibold hover:bg-green-600 transition-colors active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed";
+                completeBtn.disabled = completedCount === 0; // Lock if no sub-quests are done
+            }
+        }
+
         let html = '';
         task.subQuests.forEach((sq, idx) => {
             html += `
@@ -880,8 +913,7 @@ function renderFolderView() {
                     <textarea rows="1" 
                         placeholder="Add sub-quest..."
                         oninput="autoResize(this)" 
-                        onkeydown="if(event.key === 'Enter') { event.preventDefault(); const val = this.value; this.value = ''; addNewSubQuestFromModal(val); }"
-                        onblur="if(this.value.trim() !== '') { const val = this.value; this.value = ''; addNewSubQuestFromModal(val); }"
+                        onkeydown="if(event.key === 'Enter') { event.preventDefault(); const ghost = document.getElementById('modalGhostRowInput'); ghost.focus(); setTimeout(() => { const c = ghost.closest('.overflow-y-auto'); if(c) c.scrollTo({top: c.scrollHeight, behavior: 'smooth'}); }, 50); }"
                         class="flex-1 bg-transparent border-none p-0 focus:ring-0 resize-none overflow-hidden outline-none text-sm font-medium text-dark"></textarea>
                 </div>
             </div>
@@ -919,10 +951,15 @@ function addNewSubQuestFromModal(newName) {
             renderFolderView();
             
             // Rapid-Fire UX: Auto-focus the new empty row so you can keep typing!
+            // Rapid-Fire UX: Auto-focus the new empty row and scroll to the absolute bottom!
             setTimeout(() => {
                 const textareas = document.querySelectorAll('#folderViewList textarea');
                 if(textareas.length > 0) {
                     textareas[textareas.length - 1].focus();
+                }
+                const container = document.getElementById('folderViewList');
+                if (container) {
+                    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
                 }
             }, 50);
         };
@@ -993,8 +1030,6 @@ function deleteSubQuestFromModal(taskId, subIndex) {
 function openTaskModal() {
     document.getElementById('taskModal').classList.remove('hidden');
     document.getElementById('taskForm').reset();
-    clearSubQuests();
-    addSubQuestInput('Quest 1'); // Give them one empty input to start
     document.getElementById('taskDesc').style.height = 'auto';
     document.getElementById('editTaskId').value = '';
     document.getElementById('taskModalTitle').innerText = 'New Quest';
@@ -1051,17 +1086,16 @@ function fetchAndEditTaskModal(id) {
         // Handle Quest Type View & Sub-Quests
         if (task.isFolder) {
             document.getElementById('questType').value = 'folder';
-            
-            clearSubQuests();
-            if (task.subQuests && task.subQuests.length > 0) {
-                task.subQuests.forEach(sq => addSubQuestInput(sq.name, sq.completed));
-            } else {
-                addSubQuestInput('Quest 1');
-            }
         } else {
             document.getElementById('questType').value = task.isOneTime ? 'onetime' : 'recurring';
         }
-        toggleQuestType(); // Trigger the UI switch visually
+        
+        clearSubQuests();
+        if (task.subQuests && task.subQuests.length > 0) {
+            task.subQuests.forEach(sq => addSubQuestInput(sq.name, sq.completed));
+        }
+        
+        toggleQuestType();
 
         if (task.isOneTime) {
             if (task.oneTimeData) {
@@ -1109,6 +1143,91 @@ function fetchAndEditTaskModal(id) {
     };
 }
 
+function completeQuestFromModal() {
+    if (!currentFolderViewId) return;
+    toggleTask(currentFolderViewId); // Triggers the exact same logic as a dashboard Complete button
+}
+
+function addSubQuestInput(val = '', isCompleted = false, doFocus = false) {
+    const container = document.getElementById('subQuestsList');
+    const div = document.createElement('div');
+    
+    // Match the exact padding and layout of the Folder View
+    div.className = 'flex items-start justify-between p-2 rounded-xl hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100 group';
+
+    // Safely format text and determine styling based on completion status
+    const safeVal = val.replace(/"/g, '&quot;');
+    const completedClass = isCompleted ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-300 group-hover:border-orange-400';
+    const textClass = isCompleted ? 'text-gray-400 line-through' : 'text-dark';
+    const checkOpacity = isCompleted ? 'opacity-100' : 'opacity-0';
+
+    div.innerHTML = `
+        <div class="flex items-start gap-3 flex-1 min-w-0 pt-0.5">
+            <div class="w-6 h-6 shrink-0 rounded-lg border-2 flex items-center justify-center cursor-pointer transition-all ${completedClass}" onclick="toggleModalSubQuest(this)">
+                <svg class="w-4 h-4 ${checkOpacity} transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+            
+            <textarea rows="1" placeholder="Quest name..." data-completed="${isCompleted}" 
+                oninput="autoResize(this)" 
+                onkeydown="if(event.key === 'Enter') { event.preventDefault(); document.getElementById('modalGhostRowInput').focus(); }"
+                class="sub-quest-input flex-1 bg-transparent border-none p-0 focus:ring-0 resize-none overflow-hidden outline-none text-sm font-medium transition-all ${textClass}">${safeVal}</textarea>
+        </div>
+        
+        <div class="flex gap-1 shrink-0 ml-2">
+            <button type="button" onclick="this.closest('.group').remove()" class="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all active:scale-90" title="Remove">🗑️</button>
+        </div>
+    `;
+    container.appendChild(div);
+
+    const newTextarea = div.querySelector('textarea');
+    setTimeout(() => {
+        autoResize(newTextarea);
+        if (doFocus) newTextarea.focus();
+    }, 10);
+}
+
+function clearSubQuests() {
+    document.getElementById('subQuestsList').innerHTML = '';
+}
+
+function toggleModalSubQuest(btn) {
+    // Find the textarea sitting right next to this checkbox
+    const textarea = btn.nextElementSibling;
+    const isCompleted = textarea.getAttribute('data-completed') === 'true';
+    const willBeCompleted = !isCompleted;
+
+    // 1. Update the hidden data state so saveTask() sees it
+    textarea.setAttribute('data-completed', willBeCompleted);
+
+    // 2. Update Text Styling
+    if (willBeCompleted) {
+        textarea.classList.add('text-gray-400', 'line-through');
+        textarea.classList.remove('text-dark');
+    } else {
+        textarea.classList.remove('text-gray-400', 'line-through');
+        textarea.classList.add('text-dark');
+    }
+
+    // 3. Update Box Styling
+    if (willBeCompleted) {
+        btn.classList.add('bg-orange-500', 'border-orange-500', 'text-white');
+        btn.classList.remove('border-gray-300', 'group-hover:border-orange-400');
+    } else {
+        btn.classList.remove('bg-orange-500', 'border-orange-500', 'text-white');
+        btn.classList.add('border-gray-300', 'group-hover:border-orange-400');
+    }
+
+    // 4. Update SVG Checkmark
+    const svg = btn.querySelector('svg');
+    if (willBeCompleted) {
+        svg.classList.add('opacity-100');
+        svg.classList.remove('opacity-0');
+    } else {
+        svg.classList.remove('opacity-100');
+        svg.classList.add('opacity-0');
+    }
+}
+
 function toggleQuestType() {
     const type = document.getElementById('questType').value;
     document.getElementById('oneTimeSettings').classList.add('hidden');
@@ -1119,27 +1238,11 @@ function toggleQuestType() {
         document.getElementById('oneTimeSettings').classList.remove('hidden');
     } else if (type === 'recurring') {
         document.getElementById('recurringSettings').classList.remove('hidden');
+        document.getElementById('folderSettings').classList.remove('hidden'); // Show sub-quests
     } else if (type === 'folder') {
-        // Show BOTH the deadline options AND the sub-quests list!
         document.getElementById('oneTimeSettings').classList.remove('hidden');
         document.getElementById('folderSettings').classList.remove('hidden');
     }
-}
-
-function addSubQuestInput(val = '', isCompleted = false) {
-    const container = document.getElementById('subQuestsList');
-    const div = document.createElement('div');
-    div.className = 'flex gap-2 items-center animate-fade-in';
-    div.innerHTML = `
-        <input type="text" placeholder="Quest name..." value="${val}" data-completed="${isCompleted}" 
-            class="sub-quest-input flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-400 outline-none transition-all text-sm font-medium">
-        <button type="button" onclick="this.parentElement.remove()" class="p-3 text-red-400 hover:bg-red-50 rounded-xl transition-all font-bold" title="Remove">✕</button>
-    `;
-    container.appendChild(div);
-}
-
-function clearSubQuests() {
-    document.getElementById('subQuestsList').innerHTML = '';
 }
 
 function toggleOneTimeInputs() {
@@ -1206,18 +1309,19 @@ function toggleSubQuest(taskId, subIndex) {
         task.subQuests[subIndex].completed = !wasSubCompleted;
 
         // 2. Check Folder Status
-        const allDone = task.subQuests.every(sq => sq.completed);
-        const wasFolderCompleted = task.completed;
+        if (task.isFolder) {
+            const allDone = task.subQuests.every(sq => sq.completed);
+            const wasFolderCompleted = task.completed;
+            task.completed = allDone;
 
-        task.completed = allDone;
-
-        if (task.completed && !wasFolderCompleted) {
-            task.completedAt = now;
-            task.gemClaimed = false; // Midnight sweeper will delete it and grant gem
-            showToast(`📁 Folder Cleared: ${task.name}!`);
-        } else if (!task.completed && wasFolderCompleted) {
-            task.completedAt = null;
-            task.gemClaimed = false;
+            if (task.completed && !wasFolderCompleted) {
+                task.completedAt = now;
+                task.gemClaimed = false; // Midnight sweeper will delete it and grant gem
+                showToast(`📁 Folder Cleared: ${task.name}!`);
+            } else if (!task.completed && wasFolderCompleted) {
+                task.completedAt = null;
+                task.gemClaimed = false;
+            }
         }
 
         // 3. Global Streak Logic
