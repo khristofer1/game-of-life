@@ -772,23 +772,6 @@ function switchTab(tabId) {
 
 // #region 5: QUEST MODAL & FORMS
 
-function autoResize(textarea) {
-    // 1. Find the modal's scrollable container and save its exact position
-    const scrollContainer = textarea.closest('.overflow-y-auto');
-    const currentScroll = scrollContainer ? scrollContainer.scrollTop : 0;
-
-    // 2. Do the resizing math
-    // Shrinks the text area to the smallest possible height
-    textarea.style.height = 'auto';
-    // Set the height of that text area based on the scrollHeight property
-    textarea.style.height = textarea.scrollHeight + 'px';
-
-    // 3. Instantly force the scrollbar back to where it was
-    if (scrollContainer) {
-        scrollContainer.scrollTop = currentScroll;
-    }
-}
-
 function openTaskModal() {
     document.getElementById('taskModal').classList.remove('hidden');
     document.getElementById('taskForm').reset();

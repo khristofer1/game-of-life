@@ -16,8 +16,7 @@
 @import "tailwindcss";
 
 /* The command for having the PC synchronize the input.css and style.css
-chmod +x tailwind
-./tailwind -i input.css -o style.css --watch
+npm run dev
 */
 
 /* You can put your custom .glass-card and animations here now! */

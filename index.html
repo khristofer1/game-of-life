@@ -99,27 +99,23 @@
                     <input type="hidden" id="editTaskId">
 
                     <div>
-                        <label class="block text-sm font-semibold text-dark mb-2">Quest Name</label>
-                        <input type="text" id="taskName" required
-                            placeholder="e.g. Read 1 Chapter, Complete Thesis Section..."
-                            class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none transition-all">
+                        <label class="block font-semibold text-dark mb-2">Quest Name</label>
+                        <input type="text" id="taskName" required placeholder="e.g. Read 1 Chapter, Complete Thesis Section..." class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none transition-all">
                     </div>
 
                     <div>
-                        <label class="block text-sm font-semibold text-dark mb-2">Description <span
-                                class="text-muted font-normal">(Optional)</span></label>
-                        <textarea id="taskDesc" rows="2" oninput="autoResize(this)" placeholder="Quest details..."
-                            class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none transition-all resize-none overflow-hidden"></textarea>
+                        <label class="block font-semibold text-dark mb-2">Description <span class="text-muted font-normal">(Optional)</span></label>
+                        <textarea id="taskDesc" placeholder="Quest details..." class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none transition-all resize-none overflow-hidden field-sizing-content"></textarea>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-semibold text-dark mb-2">Start Date & Time</label>
+                        <label class="block font-semibold text-dark mb-2">Start Date & Time</label>
                         <input type="datetime-local" id="taskStartDate"
                             class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none transition-all font-medium text-dark cursor-pointer text-center">
                     </div>
 
                     <div>
-                        <label class="block text-sm font-semibold text-dark mb-2">Quest Type</label>
+                        <label class="block font-semibold text-dark mb-2">Quest Type</label>
                         <select id="questType" onchange="toggleQuestType()"
                             class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark cursor-pointer">
                             <option value="onetime">🎯 One-Time Quest</option>
@@ -129,7 +125,7 @@
 
                     <div id="oneTimeSettings" class="hidden space-y-6">
                         <div>
-                            <label class="block text-sm font-semibold text-dark mb-2">Deadline Type</label>
+                            <label class="block font-semibold text-dark mb-2">Deadline Type</label>
                             <select id="oneTimeDeadlineType" onchange="toggleOneTimeInputs()"
                                 class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark cursor-pointer">
                                 <option value="duration" selected>By Duration (Days/Weeks/Months)</option>
@@ -150,7 +146,7 @@
                         </div>
 
                         <div id="oneTimeDateInputs" class="hidden">
-                            <label class="block text-sm font-semibold text-dark mb-2">Hard Deadline <span
+                            <label class="block font-semibold text-dark mb-2">Hard Deadline <span
                                     class="text-red-500">*</span></label>
                             <input type="datetime-local" id="oneTimeDeadline"
                                 class="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark cursor-pointer text-center">
@@ -159,7 +155,7 @@
 
                     <div id="recurringSettings" class="space-y-6">
                         <div>
-                            <label class="block text-sm font-semibold text-dark mb-2">Repeat Every</label>
+                            <label class="block font-semibold text-dark mb-2">Repeat Every</label>
                             <div class="flex gap-3">
                                 <input type="number" id="taskFreqNum" min="1" value="1"
                                     class="w-24 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark text-center">
@@ -177,7 +173,7 @@
                             <label class="flex items-center gap-2 cursor-pointer mb-3">
                                 <input type="checkbox" id="taskHasLimit" onchange="toggleLimitType()"
                                     class="w-4 h-4 text-orange-500 rounded focus:ring-orange-400">
-                                <span class="text-sm font-semibold text-dark">This quest has a time limit</span>
+                                <span class="font-semibold text-dark">This quest has a time limit</span>
                             </label>
 
                             <div id="limitOptionsContainer" class="hidden space-y-3">
@@ -206,11 +202,11 @@
                                 </div>
 
                                 <div id="limitOccurrencesInputs" class="hidden items-center gap-3">
-                                    <div class="flex items-center text-sm font-semibold text-muted px-2">Ends after
+                                    <div class="flex items-center font-semibold text-muted px-2">Ends after
                                     </div>
                                     <input type="number" id="limitOccurrences" min="1" value="10"
                                         class="w-24 px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-orange-400 outline-none transition-all font-medium text-dark text-center">
-                                    <div class="flex items-center text-sm font-semibold text-muted px-2">times</div>
+                                    <div class="flex items-center font-semibold text-muted px-2">times</div>
                                 </div>
                             </div>
                         </div>
