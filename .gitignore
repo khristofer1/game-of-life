@@ -1,2 +1,4 @@
 node_modules
-game-of-life.zip
+style.css
+.env
+dist/
