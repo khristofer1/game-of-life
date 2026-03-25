@@ -7,6 +7,23 @@ const META_STORE = "metadata";
 
 const request = indexedDB.open(DB_NAME, DB_VERSION);
 
+// --- PROMISE WRAPPERS FOR INDEXEDDB ---
+function dbGet(store, key, defaultValue = null) {
+    return new Promise((resolve, reject) => {
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result !== undefined ? req.result : defaultValue);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function dbGetAll(store) {
+    return new Promise((resolve, reject) => {
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+}
+
 request.onupgradeneeded = (e) => {
     db = e.target.result;
     if (db.objectStoreNames.contains("habits")) db.deleteObjectStore("habits");
@@ -164,215 +181,219 @@ function openChest() {
 // #region 3: CORE QUEST LOGIC
 
 // QUEST ENGINE & AUTOMATION
-function refreshTasks() {
+async function refreshTasks() {
     const transaction = db.transaction([TASK_STORE, META_STORE], "readwrite");
     const store = transaction.objectStore(TASK_STORE);
     const metaStore = transaction.objectStore(META_STORE);
 
-    metaStore.get("gems").onsuccess = (eGems) => {
-        let gems = eGems.target.result || 0;
-        metaStore.get("globalFreezes").onsuccess = (eFreezes) => {
-        let globalFreezes = eFreezes.target.result || 0;
-        metaStore.get("activeCapacity").onsuccess = (eCap) => {
-        let activeCapacity = eCap.target.result || 2;
-        metaStore.get("trueMaxFreezes").onsuccess = (eMax) => {
-        let trueMaxFreezes = eMax.target.result || 2;
-        // NEW CHEST DATA:
-        metaStore.get("lastChestOpenDate").onsuccess = (eChestD) => {
-        let lastChestOpenDate = eChestD.target.result || 0;
-        metaStore.get("chestCombo").onsuccess = (eCombo) => {
-        let chestCombo = eCombo.target.result || 0;
-        metaStore.get("chestEnabled").onsuccess = (eChestOn) => {
-        let chestEnabled = eChestOn.target.result || false;
-        metaStore.get("yearBadgeEnabled").onsuccess = (eBadgeOn) => {
-        let yearBadgeEnabled = eBadgeOn.target.result || false;
+    try {
+        // 1. FETCH ALL DATA IN ONE FLAT BLOCK
+        const gems = await dbGet(metaStore, "gems", 0);
+        const globalFreezes = await dbGet(metaStore, "globalFreezes", 0);
+        const activeCapacity = await dbGet(metaStore, "activeCapacity", 2);
+        const trueMaxFreezes = await dbGet(metaStore, "trueMaxFreezes", 2);
+        const lastChestOpenDate = await dbGet(metaStore, "lastChestOpenDate", 0);
+        const chestCombo = await dbGet(metaStore, "chestCombo", 0);
+        const chestEnabled = await dbGet(metaStore, "chestEnabled", false);
+        const yearBadgeEnabled = await dbGet(metaStore, "yearBadgeEnabled", false);
+        
+        let lastStreakUpdate = await dbGet(metaStore, "lastStreakUpdate", 0);
+        let globalStreak = await dbGet(metaStore, "globalStreak", 0);
+        
+        const tasks = await dbGetAll(store);
 
-        store.getAll().onsuccess = (eTasks) => {
-            let tasks = eTasks.target.result;
-            const now = Date.now();
-            let totalGemsEarned = 0;
-            let freezesUsed = 0;
+        // 2. RUN THE ENGINE
+        const now = Date.now();
+        let totalGemsEarned = 0;
+        let freezesUsed = 0;
+        let usableFreezes = Math.min(globalFreezes, activeCapacity);
 
-            let usableFreezes = Math.min(globalFreezes, activeCapacity);
+        tasks.forEach(task => {
+            if (task.isArchived) return;
 
-            tasks.forEach(task => {
-                if (task.isArchived) return;
+            const isPending = task.startDate && now < task.startDate;
 
-                const isPending = task.startDate && now < task.startDate;
+            if (isPending) {
+                task.energyPercent = 100;
+                return;
+            }
 
-                if (isPending) {
-                    task.energyPercent = 100;
-                    return;
-                }
+            let timeLeft = task.deadline - now;
+            const todayDay = new Date(now).setHours(0, 0, 0, 0);
 
-                let timeLeft = task.deadline - now;
-                const todayDay = new Date(now).setHours(0, 0, 0, 0);
+            // --- UNIVERSAL MIDNIGHT SWEEPER ---
+            if (task.completed && !task.gemClaimed && task.completedAt) {
+                const completedDay = new Date(task.completedAt).setHours(0, 0, 0, 0);
 
-                // --- NEW: UNIVERSAL MIDNIGHT SWEEPER ---
-                if (task.completed && !task.gemClaimed && task.completedAt) {
-                    const completedDay = new Date(task.completedAt).setHours(0, 0, 0, 0);
-
-                    // If a day has passed since you completed it...
-                    if (todayDay > completedDay) {
-                        totalGemsEarned += 1;   
-                        task.gemClaimed = true; 
-                        
-                        if (task.isOneTime) {
-                            store.delete(task.id);  // One-time quests evaporate
-                            showToast(`Bounty Cleared: ${task.name}! +1 💎`);
-                            return; // Skip the rest of the logic
-                        } else {
-                            store.put(task); // Recurring quests stay, but claim status is saved
+                if (todayDay > completedDay) {
+                    totalGemsEarned += 1;   
+                    task.gemClaimed = true; 
+                    
+                    if (task.isOneTime) {
+                        store.delete(task.id); 
+                        showToast(`Bounty Cleared: ${task.name}! +1 💎`);
+                        return; 
+                    } else {
+                        // Only award a gem here if it DOES NOT have subquests. Subquests reward on cycle reset!
+                        if (!task.subQuests || task.subQuests.length === 0) {
+                            totalGemsEarned += 1;   
+                            task.gemClaimed = true; 
+                            store.put(task); 
                             showToast(`Daily Reward: ${task.name}! +1 💎`);
                         }
                     }
                 }
+            }
 
-                // --- ONE-TIME QUEST LOGIC ---
-                if (task.isOneTime) {
-                    if (timeLeft <= 0 && !task.completed) {
-                        task.isArchived = true;
-                        task.energyPercent = 0;
-                        store.put(task);
-                        showToast(`Failed one-time quest: ${task.name}`);
-                    } else if (timeLeft > 0 && !task.completed) {
-                        task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
-                    }
-                    return; 
-                }
-
-                // --- RECURRING LOGIC ---
-                if (task.hasLimit && now >= task.expireAt) {
-                    store.delete(task.id);
-                    return;
-                }
-
-                if (timeLeft <= 0) {
-                    const timeOverdue = now - task.deadline;
-                    const cyclesMissed = Math.floor(timeOverdue / task.durationMs) + 1;
-
-                    task.completed = false;
-                    task.gemClaimed = false; // Reset claim status for the new cycle!
-                    task.completedAt = null;
-                    
-                    task.createdAt = task.createdAt + (cyclesMissed * task.durationMs);
-                    task.deadline = task.deadline + (cyclesMissed * task.durationMs);
-                    timeLeft = task.deadline - now;
+            // --- ONE-TIME QUEST LOGIC ---
+            if (task.isOneTime) {
+                if (timeLeft <= 0 && !task.completed) {
+                    task.isArchived = true;
+                    task.energyPercent = 0;
                     store.put(task);
-                }
-
-                if (timeLeft > 0 && !task.completed) {
+                    showToast(`Failed one-time quest: ${task.name}`);
+                } else if (timeLeft > 0 && !task.completed) {
                     task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
                 }
+                return; 
+            }
+
+            // --- RECURRING LOGIC ---
+            if (task.hasLimit && now >= task.expireAt) {
+                store.delete(task.id);
+                return;
+            }
+
+            if (timeLeft <= 0) {
+                const timeOverdue = now - task.deadline;
+                const cyclesMissed = Math.floor(timeOverdue / task.durationMs) + 1;
+
+                // --- NEW: REWARD AND REMOVE SUBQUESTS ON SCHEDULE RESET ---
+                if (task.subQuests && task.subQuests.length > 0) {
+                    const completedSubs = task.subQuests.filter(sq => sq.completed).length;
+                    if (completedSubs > 0) {
+                        totalGemsEarned += completedSubs; // +1 Gem per completed sub-quest!
+                        // Erase the completed ones so the fresh card is clean
+                        task.subQuests = task.subQuests.filter(sq => !sq.completed);
+                        showToast(`Routine Cleared: ${task.name}! +${completedSubs} 💎`);
+                    }
+                }
+
+                task.completed = false;
+                task.gemClaimed = false; 
+                task.completedAt = null;
+                
+                task.createdAt = task.createdAt + (cyclesMissed * task.durationMs);
+                task.deadline = task.deadline + (cyclesMissed * task.durationMs);
+                timeLeft = task.deadline - now;
+                store.put(task);
+            }
+
+            if (timeLeft > 0 && !task.completed) {
+                task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
+            }
+        });
+
+        // --- THE GLOBAL FREEZE ENGINE ---
+        const todayDay = new Date(now).setHours(0, 0, 0, 0);
+        const lastStreakDay = new Date(lastStreakUpdate).setHours(0, 0, 0, 0);
+        const oneDay = 24 * 60 * 60 * 1000;
+
+        if (lastStreakUpdate !== 0 && globalStreak > 0 && todayDay > lastStreakDay) {
+            const daysPassed = Math.round((todayDay - lastStreakDay) / oneDay);
+            
+            if (daysPassed > 1) { 
+                const daysMissed = daysPassed - 1;
+
+                if (usableFreezes >= daysMissed) {
+                    globalFreezes -= daysMissed;
+                    freezesUsed += daysMissed;
+                    lastStreakUpdate += (daysMissed * oneDay); 
+                    metaStore.put(lastStreakUpdate, "lastStreakUpdate");
+                } else {
+                    globalStreak = 0;
+                    globalFreezes -= usableFreezes; 
+                    metaStore.put(0, "globalStreak");
+                    showToast("💔 You missed a day. Global Streak broken.");
+                }
+            }
+        }
+
+        // 1. Save all updated metadata safely
+            metaStore.put(gems + totalGemsEarned, "gems");
+            metaStore.put(globalFreezes, "globalFreezes");
+            metaStore.put(activeCapacity, "activeCapacity");
+            metaStore.put(trueMaxFreezes, "trueMaxFreezes");
+
+            // 2. Update UI Top Bar
+            document.getElementById('gemCount').innerText = gems + totalGemsEarned;
+            
+            const highestStreak = globalStreak;
+            const highestStreakEl = document.getElementById('highestStreak');
+            if (highestStreakEl) highestStreakEl.innerText = highestStreak;
+
+            // 3. Auto-Lock logic (Skill Tree)
+            let stateChanged = false;
+            if (highestStreak < 30 && chestEnabled) { chestEnabled = false; metaStore.put(false, "chestEnabled"); stateChanged = true; }
+            if (highestStreak < 180 && trueMaxFreezes === 5) { trueMaxFreezes = 2; activeCapacity = 2; globalFreezes = Math.min(globalFreezes, 2); metaStore.put(2, "trueMaxFreezes"); metaStore.put(2, "activeCapacity"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("⚠️ Streak fell below 180. Freezes locked."); }
+            if (highestStreak >= 180 && trueMaxFreezes === 2) { trueMaxFreezes = 5; globalFreezes += 3; metaStore.put(5, "trueMaxFreezes"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("🔥 180 Streak! Capacity expanded to 5."); }
+            if (highestStreak < 365 && yearBadgeEnabled) { yearBadgeEnabled = false; metaStore.put(false, "yearBadgeEnabled"); stateChanged = true; }
+
+            const badgeEl = document.getElementById('yearBadge');
+            if (yearBadgeEnabled && badgeEl) {
+                const years = Math.floor(highestStreak / 365);
+                badgeEl.innerText = `${years}+`;
+                badgeEl.classList.remove('hidden');
+            } else if (badgeEl) {
+                badgeEl.classList.add('hidden');
+            }
+
+            // 4. Chest UI
+            const chestContainer = document.getElementById('floatingChestContainer');
+            ['chestNormal', 'chestMystery', 'chestGold', 'chestGoldMystery'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
             });
 
-            // --- THE GLOBAL FREEZE ENGINE ---
-        metaStore.get("lastStreakUpdate").onsuccess = (eDate) => {
-            let lastStreakUpdate = eDate.target.result || 0;
-            metaStore.get("globalStreak").onsuccess = (eStreak) => {
-                let globalStreak = eStreak.target.result || 0;
+            const lastOpenDay = new Date(lastChestOpenDate).setHours(0, 0, 0, 0);
+            if (chestEnabled && highestStreak > 0 && todayDay > lastOpenDay) {
+                chestContainer.classList.remove('hidden');
+                let displayCombo = (lastChestOpenDate !== 0 && (todayDay - lastOpenDay > oneDay)) ? 0 : chestCombo;
+                const textId = yearBadgeEnabled ? 'chestGoldComboText' : 'chestComboText';
+                const elText = document.getElementById(textId);
+                if (elText) elText.innerText = `Combo: ${displayCombo}/6`;
 
-                const todayDay = new Date(now).setHours(0, 0, 0, 0);
-                const lastStreakDay = new Date(lastStreakUpdate).setHours(0, 0, 0, 0);
-                const oneDay = 24 * 60 * 60 * 1000;
-
-                // Did we miss yesterday?
-                if (lastStreakUpdate !== 0 && globalStreak > 0 && todayDay > lastStreakDay) {
-                    const daysPassed = Math.round((todayDay - lastStreakDay) / oneDay);
-                    
-                    if (daysPassed > 1) { // 2+ days means at least yesterday was completely missed!
-                        const daysMissed = daysPassed - 1;
-                        let usableFreezes = Math.min(globalFreezes, activeCapacity);
-
-                        if (usableFreezes >= daysMissed) {
-                            // Protected by the Stash!
-                            globalFreezes -= daysMissed;
-                            freezesUsed += daysMissed;
-                            lastStreakUpdate += (daysMissed * oneDay); // Fast-forward time so we don't double-charge
-                            metaStore.put(lastStreakUpdate, "lastStreakUpdate");
-                        } else {
-                            // Streak Broken!
-                            globalStreak = 0;
-                            globalFreezes -= usableFreezes; // Burn whatever was left in the active slot
-                            metaStore.put(0, "globalStreak");
-                            showToast("💔 You missed a day. Global Streak broken.");
-                        }
-                    }
-                }
-
-                // 1. Save all updated metadata safely
-                metaStore.put(gems + totalGemsEarned, "gems");
-                metaStore.put(globalFreezes, "globalFreezes");
-                metaStore.put(activeCapacity, "activeCapacity");
-                metaStore.put(trueMaxFreezes, "trueMaxFreezes");
-
-                // 2. Update UI Top Bar
-                document.getElementById('gemCount').innerText = gems + totalGemsEarned;
-                
-                const highestStreak = globalStreak;
-                const highestStreakEl = document.getElementById('highestStreak');
-                if (highestStreakEl) highestStreakEl.innerText = highestStreak;
-
-                // 3. Auto-Lock logic (Skill Tree)
-                let stateChanged = false;
-                if (highestStreak < 30 && chestEnabled) { chestEnabled = false; metaStore.put(false, "chestEnabled"); stateChanged = true; }
-                if (highestStreak < 180 && trueMaxFreezes === 5) { trueMaxFreezes = 2; activeCapacity = 2; globalFreezes = Math.min(globalFreezes, 2); metaStore.put(2, "trueMaxFreezes"); metaStore.put(2, "activeCapacity"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("⚠️ Streak fell below 180. Freezes locked."); }
-                if (highestStreak >= 180 && trueMaxFreezes === 2) { trueMaxFreezes = 5; globalFreezes += 3; metaStore.put(5, "trueMaxFreezes"); metaStore.put(globalFreezes, "globalFreezes"); stateChanged = true; showToast("🔥 180 Streak! Capacity expanded to 5."); }
-                if (highestStreak < 365 && yearBadgeEnabled) { yearBadgeEnabled = false; metaStore.put(false, "yearBadgeEnabled"); stateChanged = true; }
-
-                const badgeEl = document.getElementById('yearBadge');
-                if (yearBadgeEnabled && badgeEl) {
-                    const years = Math.floor(highestStreak / 365);
-                    badgeEl.innerText = `${years}+`;
-                    badgeEl.classList.remove('hidden');
-                } else if (badgeEl) {
-                    badgeEl.classList.add('hidden');
-                }
-
-                // 4. Chest UI
-                const chestContainer = document.getElementById('floatingChestContainer');
-                ['chestNormal', 'chestMystery', 'chestGold', 'chestGoldMystery'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.classList.add('hidden');
-                });
-
-                const lastOpenDay = new Date(lastChestOpenDate).setHours(0, 0, 0, 0);
-                if (chestEnabled && highestStreak > 0 && todayDay > lastOpenDay) {
-                    chestContainer.classList.remove('hidden');
-                    let displayCombo = (lastChestOpenDate !== 0 && (todayDay - lastOpenDay > oneDay)) ? 0 : chestCombo;
-                    const textId = yearBadgeEnabled ? 'chestGoldComboText' : 'chestComboText';
-                    const elText = document.getElementById(textId);
-                    if (elText) elText.innerText = `Combo: ${displayCombo}/6`;
-
-                    if (displayCombo >= 6) {
-                        document.getElementById(yearBadgeEnabled ? 'chestGoldMystery' : 'chestMystery').classList.remove('hidden');
-                    } else {
-                        document.getElementById(yearBadgeEnabled ? 'chestGold' : 'chestNormal').classList.remove('hidden');
-                    }
+                if (displayCombo >= 6) {
+                    document.getElementById(yearBadgeEnabled ? 'chestGoldMystery' : 'chestMystery').classList.remove('hidden');
                 } else {
-                    chestContainer.classList.add('hidden');
+                    document.getElementById(yearBadgeEnabled ? 'chestGold' : 'chestNormal').classList.remove('hidden');
                 }
+            } else {
+                chestContainer.classList.add('hidden');
+            }
 
-                const shopGem = document.getElementById('shopGemCount');
-                if (shopGem) {
-                    shopGem.innerText = gems + totalGemsEarned;
-                    document.getElementById('shopFreezeCount').innerText = globalFreezes;
-                    document.getElementById('shopMaxFreezes').innerText = trueMaxFreezes;
-                }
+            const shopGem = document.getElementById('shopGemCount');
+            if (shopGem) {
+                shopGem.innerText = gems + totalGemsEarned;
+                document.getElementById('shopFreezeCount').innerText = globalFreezes;
+                document.getElementById('shopMaxFreezes').innerText = trueMaxFreezes;
+            }
 
-                if (freezesUsed > 0) showToast(`Used ${freezesUsed} ❄️ to protect your Global Streak!`);
+            if (freezesUsed > 0) showToast(`Used ${freezesUsed} ❄️ to protect your Global Streak!`);
 
-                // 5. Render Board
-                const activeQuests = tasks.filter(t => !t.completed && !t.isArchived && !(t.startDate && now < t.startDate)).sort((a, b) => a.deadline - b.deadline);
-                const comingQuests = tasks.filter(t => !t.completed && !t.isArchived && (t.startDate && now < t.startDate)).sort((a, b) => a.startDate - b.startDate);
-                const finishedQuests = tasks.filter(t => t.completed && !t.isArchived).sort((a, b) => a.deadline - b.deadline);
+            // 5. Render Board
+            const activeQuests = tasks.filter(t => !t.completed && !t.isArchived && !(t.startDate && now < t.startDate)).sort((a, b) => a.deadline - b.deadline);
+            const comingQuests = tasks.filter(t => !t.completed && !t.isArchived && (t.startDate && now < t.startDate)).sort((a, b) => a.startDate - b.startDate);
+            const finishedQuests = tasks.filter(t => t.completed && !t.isArchived).sort((a, b) => a.deadline - b.deadline);
 
-                renderTaskCards(activeQuests, 'activeTasksList', 'No active quests for today.');
-                renderTaskCards(comingQuests, 'comingTasksList', 'No upcoming quests.');
-                renderTaskCards(finishedQuests, 'completedTasksList', 'No quests conquered yet.');
-            }; // Closes the globalStreak fetch
-        }; // Closes the lastStreakUpdate fetch
-    }}}}}}}}};
+            renderTaskCards(activeQuests, 'activeTasksList', 'No active quests for today.');
+            renderTaskCards(comingQuests, 'comingTasksList', 'No upcoming quests.');
+            renderTaskCards(finishedQuests, 'completedTasksList', 'No quests conquered yet.');
+        } catch (error) {
+        // The missing parachute!
+        console.error("Critical Engine Failure:", error);
+        showToast("System Error: Board failed to synchronize.");
+    }
 }
 
 function saveTask() {
@@ -393,11 +414,26 @@ function saveTask() {
     }
 
     // --- QUEST TYPE LOGIC ---
-    const isOneTime = document.getElementById('questType').value === 'onetime';
+    const questTypeValue = document.getElementById('questType').value;
+    const isOneTime = questTypeValue === 'onetime' || questTypeValue === 'folder'; 
+    const isFolder = questTypeValue === 'folder';
+
     let freqNum = 1, freqUnit = 'weeks', displayFreq = '', durationMs = 0;
     let hasLimit = false, limitData = { type: null }, expireAt = null;
     let deadline;
-    let oneTimeData = null; // <-- NEW: Stores your choice so we can edit it later
+    let oneTimeData = null; 
+    let subQuests = [];
+
+    // --- EXTRACT SUB-QUESTS FIRST ---
+    if (questTypeValue === 'folder' || questTypeValue === 'recurring') {
+        const inputs = document.querySelectorAll('.sub-quest-input');
+        inputs.forEach(input => {
+            if (input.value.trim() !== '') {
+                subQuests.push({ name: input.value.trim(), completed: input.getAttribute('data-completed') === 'true' });
+            }
+        });
+        if (isFolder && subQuests.length === 0) return showToast("Folders must have at least one sub-quest.");
+    }
 
     if (isOneTime) {
         const otType = document.getElementById('oneTimeDeadlineType').value;
@@ -423,8 +459,10 @@ function saveTask() {
             durationMs = deadline - startDate;
             oneTimeData = { type: 'date', dateStr: deadlineInput };
         }
-        displayFreq = "One-Time Quest";
+        
+        displayFreq = isFolder ? "📁 Quest Folder" : "One-Time Quest";
     } else {
+        // --- RECURRING LOGIC ---
         freqNum = parseInt(document.getElementById('taskFreqNum').value);
         freqUnit = document.getElementById('taskFreqUnit').value;
         if (freqNum < 1 || isNaN(freqNum)) return showToast("Enter a valid frequency.");
@@ -439,7 +477,6 @@ function saveTask() {
         displayFreq = `Every ${freqNum} ${unitText.charAt(0).toUpperCase() + unitText.slice(1)}`;
         deadline = startDate + durationMs;
 
-        // Limits UI Data
         hasLimit = document.getElementById('taskHasLimit').checked;
         const limitType = document.getElementById('limitType').value;
         const limitNum = parseInt(document.getElementById('limitNum').value);
@@ -499,6 +536,10 @@ function saveTask() {
                 const timeLeft = task.deadline - now;
                 task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
             }
+            
+            // Assign folder data BEFORE saving to the database
+            task.isFolder = isFolder;
+            task.subQuests = subQuests;
 
             store.put(task);
             transaction.oncomplete = () => {
@@ -511,7 +552,8 @@ function saveTask() {
         // --- ADDING NEW ---
         store.add({
             name, desc, isOneTime, freqNum, freqUnit, displayFreq, durationMs,
-            hasLimit, limitData, expireAt, isArchived: false,
+            hasLimit, limitData, expireAt, isFolder, subQuests,
+            isArchived: false,
             startDate: startDate,
             createdAt: startDate,
             deadline: deadline,
@@ -603,7 +645,10 @@ function toggleTask(id) {
         store.put(task);
     };
 
-    transaction.oncomplete = () => refreshTasks();
+    transaction.oncomplete = () => {
+        refreshTasks();
+        if (currentFolderViewId === id) renderFolderView();
+    };
 }
 
 let taskIdToDelete = null;
@@ -686,16 +731,17 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
                     ${task.desc ? `<p class="text-xs text-muted mt-1 line-clamp-2">${task.desc}</p>` : ''}
                 </div>
             </div>
-
-            <div class="mt-auto pt-2 mb-5">
-                <div class="flex justify-between items-end mb-1">
-                    <span class="text-xs font-bold text-muted uppercase tracking-wider">${task.displayFreq}</span>
-                    <span class="text-sm font-bold energy-text ${isPending ? 'text-gray-400' : (task.completed ? 'text-green-500' : 'text-orange-500')}">${isPending ? 'Locked' : (task.completed ? 'Safe at ' + task.energyPercent + '%' : task.energyPercent + '%')}</span>
+            
+            <div class="mt-auto space-y-4">
+                <div>
+                    <div class="flex justify-between items-end mb-1.5">
+                        <span class="text-xs font-bold text-muted uppercase tracking-wider">${task.displayFreq}</span>
+                        <span class="text-sm font-bold energy-text ${isPending ? 'text-gray-400' : (task.completed ? 'text-green-500' : 'text-orange-500')}">${isPending ? 'Locked' : (task.completed ? 'Safe at ' + task.energyPercent + '%' : task.energyPercent + '%')}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div class="${barColor} h-2 rounded-full transition-all duration-1000 ease-out energy-bar" style="width: ${task.energyPercent}%"></div>
+                    </div>
                 </div>
-                <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                    <div class="${barColor} h-2 rounded-full transition-all duration-1000 ease-out energy-bar" style="width: ${task.energyPercent}%"></div>
-                </div>
-            </div>
 
             <div class="pt-2 flex items-center justify-between gap-2">
                 <button ${btnAction} class="check-transition flex-grow flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm whitespace-nowrap ${btnClass}">
@@ -775,6 +821,8 @@ function switchTab(tabId) {
 function openTaskModal() {
     document.getElementById('taskModal').classList.remove('hidden');
     document.getElementById('taskForm').reset();
+    const ghostRow = document.getElementById('modalGhostRowInput');
+    if (ghostRow) { ghostRow.value = ''; autoResize(ghostRow); }
     document.getElementById('taskDesc').style.height = 'auto';
     document.getElementById('editTaskId').value = '';
     document.getElementById('taskModalTitle').innerText = 'New Quest';
@@ -828,9 +876,19 @@ function fetchAndEditTaskModal(id) {
             document.getElementById('taskStartDate').value = '';
         }
 
-        // Handle Quest Type View
-        document.getElementById('questType').value = task.isOneTime ? 'onetime' : 'recurring';
-        toggleQuestType(); // Trigger the UI switch visually
+        // Handle Quest Type View & Sub-Quests
+        if (task.isFolder) {
+            document.getElementById('questType').value = 'folder';
+        } else {
+            document.getElementById('questType').value = task.isOneTime ? 'onetime' : 'recurring';
+        }
+        
+        clearSubQuests();
+        if (task.subQuests && task.subQuests.length > 0) {
+            task.subQuests.forEach(sq => addSubQuestInput(sq.name, sq.completed));
+        }
+        
+        toggleQuestType();
 
         if (task.isOneTime) {
             if (task.oneTimeData) {
@@ -870,18 +928,113 @@ function fetchAndEditTaskModal(id) {
         }
 
         document.getElementById('taskModal').classList.remove('hidden');
-        autoResize(document.getElementById('taskDesc'));
+        
+        // Give the browser 10ms to paint the modal before measuring the text
+        setTimeout(() => {
+            autoResize(document.getElementById('taskDesc'));
+        }, 10);
     };
+}
+
+function completeQuestFromModal() {
+    if (!currentFolderViewId) return;
+    toggleTask(currentFolderViewId); // Triggers the exact same logic as a dashboard Complete button
+}
+
+function addSubQuestInput(val = '', isCompleted = false, doFocus = false) {
+    const container = document.getElementById('subQuestsList');
+    const div = document.createElement('div');
+    
+    // Match the exact padding and layout of the Folder View
+    div.className = 'flex items-start justify-between p-2 rounded-xl hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100 group';
+
+    // Safely format text and determine styling based on completion status
+    const safeVal = val.replace(/"/g, '&quot;');
+    const completedClass = isCompleted ? 'bg-orange-500 border-orange-500 text-white' : 'border-gray-300 group-hover:border-orange-400';
+    const textClass = isCompleted ? 'text-gray-400 line-through' : 'text-dark';
+    const checkOpacity = isCompleted ? 'opacity-100' : 'opacity-0';
+
+    div.innerHTML = `
+        <div class="flex items-start gap-3 flex-1 min-w-0 pt-0.5">
+            <div class="w-6 h-6 shrink-0 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all ${completedClass}" onclick="toggleModalSubQuest(this)">
+                <svg class="w-4 h-4 ${checkOpacity} transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+            
+            <textarea rows="1" placeholder="Quest name..." data-completed="${isCompleted}" 
+                oninput="autoResize(this)" 
+                onkeydown="if(event.key === 'Enter') { event.preventDefault(); const ghost = document.getElementById('modalGhostRowInput'); ghost.focus(); setTimeout(() => { const c = ghost.closest('.overflow-y-auto'); if(c) c.scrollTo({top: c.scrollHeight, behavior: 'smooth'}); }, 50); }"
+                class="sub-quest-input flex-1 bg-transparent border-none p-0 focus:ring-0 resize-none overflow-hidden outline-none text-sm font-medium transition-all ${textClass}">${safeVal}</textarea>
+        </div>
+        
+        <div class="flex gap-1 shrink-0 ml-2">
+            <button type="button" onclick="this.closest('.group').remove()" class="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all active:scale-90" title="Remove">🗑️</button>
+        </div>
+    `;
+    container.appendChild(div);
+
+    const newTextarea = div.querySelector('textarea');
+    setTimeout(() => {
+        autoResize(newTextarea);
+        if (doFocus) newTextarea.focus();
+    }, 10);
+}
+
+function clearSubQuests() {
+    document.getElementById('subQuestsList').innerHTML = '';
+}
+
+function toggleModalSubQuest(btn) {
+    // Find the textarea sitting right next to this checkbox
+    const textarea = btn.nextElementSibling;
+    const isCompleted = textarea.getAttribute('data-completed') === 'true';
+    const willBeCompleted = !isCompleted;
+
+    // 1. Update the hidden data state so saveTask() sees it
+    textarea.setAttribute('data-completed', willBeCompleted);
+
+    // 2. Update Text Styling
+    if (willBeCompleted) {
+        textarea.classList.add('text-gray-400', 'line-through');
+        textarea.classList.remove('text-dark');
+    } else {
+        textarea.classList.remove('text-gray-400', 'line-through');
+        textarea.classList.add('text-dark');
+    }
+
+    // 3. Update Box Styling
+    if (willBeCompleted) {
+        btn.classList.add('bg-orange-500', 'border-orange-500', 'text-white');
+        btn.classList.remove('border-gray-300', 'group-hover:border-orange-400');
+    } else {
+        btn.classList.remove('bg-orange-500', 'border-orange-500', 'text-white');
+        btn.classList.add('border-gray-300', 'group-hover:border-orange-400');
+    }
+
+    // 4. Update SVG Checkmark
+    const svg = btn.querySelector('svg');
+    if (willBeCompleted) {
+        svg.classList.add('opacity-100');
+        svg.classList.remove('opacity-0');
+    } else {
+        svg.classList.remove('opacity-100');
+        svg.classList.add('opacity-0');
+    }
 }
 
 function toggleQuestType() {
     const type = document.getElementById('questType').value;
+    document.getElementById('oneTimeSettings').classList.add('hidden');
+    document.getElementById('recurringSettings').classList.add('hidden');
+    document.getElementById('folderSettings').classList.add('hidden');
+
     if (type === 'onetime') {
         document.getElementById('oneTimeSettings').classList.remove('hidden');
-        document.getElementById('recurringSettings').classList.add('hidden');
-    } else {
-        document.getElementById('oneTimeSettings').classList.add('hidden');
+    } else if (type === 'recurring') {
         document.getElementById('recurringSettings').classList.remove('hidden');
+        document.getElementById('folderSettings').classList.remove('hidden'); // Show sub-quests
+    } else if (type === 'folder') {
+        document.getElementById('oneTimeSettings').classList.remove('hidden');
+        document.getElementById('folderSettings').classList.remove('hidden');
     }
 }
 
@@ -935,6 +1088,94 @@ function toggleLimitInputs() {
     }
 }
 
+function toggleSubQuest(taskId, subIndex) {
+    const transaction = db.transaction([TASK_STORE, META_STORE], "readwrite");
+    const store = transaction.objectStore(TASK_STORE);
+    const metaStore = transaction.objectStore(META_STORE);
+
+    store.get(taskId).onsuccess = (e) => {
+        const task = e.target.result;
+        const now = Date.now();
+
+        // 1. Toggle the specific sub-quest
+        const wasSubCompleted = task.subQuests[subIndex].completed;
+        task.subQuests[subIndex].completed = !wasSubCompleted;
+
+        // 2. Check Folder Status
+        if (task.isFolder) {
+            const allDone = task.subQuests.every(sq => sq.completed);
+            const wasFolderCompleted = task.completed;
+            task.completed = allDone;
+
+            if (task.completed && !wasFolderCompleted) {
+                task.completedAt = now;
+                task.gemClaimed = false; // Midnight sweeper will delete it and grant gem
+                showToast(`📁 Folder Cleared: ${task.name}!`);
+            } else if (!task.completed && wasFolderCompleted) {
+                task.completedAt = null;
+                task.gemClaimed = false;
+            }
+        }
+
+        // 3. Global Streak Logic
+        // Completing ANY sub-quest counts as effort for the day!
+        if (task.subQuests[subIndex].completed) {
+            metaStore.get("lastStreakUpdate").onsuccess = (eDate) => {
+                let lastDate = eDate.target.result || 0;
+                metaStore.get("globalStreak").onsuccess = (eStreak) => {
+                    let globalStreak = eStreak.target.result || 0;
+                    const todayDay = new Date(now).setHours(0, 0, 0, 0);
+                    const lastStreakDay = new Date(lastDate).setHours(0, 0, 0, 0);
+
+                    if (lastDate === 0 || todayDay > lastStreakDay) {
+                        globalStreak += 1;
+                        metaStore.put(globalStreak, "globalStreak");
+                        metaStore.put(now, "lastStreakUpdate");
+                        showToast(`🔥 Daily Streak increased! Sub-quest done!`);
+                    }
+                };
+            };
+        } else {
+            // Unchecking a sub-quest triggers the undo scanner
+            store.getAll().onsuccess = (eTasks) => {
+                const allTasks = eTasks.target.result;
+                const todayDay = new Date(now).setHours(0, 0, 0, 0);
+
+                // Look for any other completed tasks OR completed subquests today
+                const otherProgress = allTasks.some(t => {
+                    if (t.id === task.id) {
+                        // Check remaining subquests in THIS folder
+                        return t.subQuests && t.subQuests.some(sq => sq.completed); 
+                    }
+                    return t.completed && t.completedAt && new Date(t.completedAt).setHours(0, 0, 0, 0) === todayDay;
+                });
+
+                if (!otherProgress) {
+                    metaStore.get("globalStreak").onsuccess = (eStreak) => {
+                        let globalStreak = eStreak.target.result || 0;
+                        if (globalStreak > 0) {
+                            globalStreak -= 1;
+                            metaStore.put(globalStreak, "globalStreak");
+                            const yesterday = now - (24 * 60 * 60 * 1000);
+                            metaStore.put(yesterday, "lastStreakUpdate");
+                            showToast("Undo: Daily Streak reverted.");
+                        }
+                    };
+                }
+            };
+        }
+
+        store.put(task);
+    };
+
+    transaction.oncomplete = () => {
+        refreshTasks(); // Update the main board in the background
+        if (currentFolderViewId === taskId) {
+            renderFolderView(); // Instantly update the checkboxes in the open modal
+        }
+    };
+}
+
 function showToast(msg) {
     const toast = document.getElementById('toast');
     // Ensure you fix the mojibake emojis if they pop up here too!
@@ -952,7 +1193,8 @@ window.addEventListener('keydown', (e) => {
         closeTaskModal();
         closeDeleteModal();
         closeSettings();
-        closeShopModal();     // <-- Added this!
+        closeShopModal();
+        closeFolderViewModal();
     }
 });
 
@@ -968,58 +1210,46 @@ function closeSettings() {
     document.getElementById('settingsModal').classList.add('hidden');
 }
 
-function exportData() {
+async function exportData() {
     const transaction = db.transaction([TASK_STORE, META_STORE], "readonly");
     const taskStore = transaction.objectStore(TASK_STORE);
     const metaStore = transaction.objectStore(META_STORE);
 
-    const backup = { tasks: [], metadata: {} };
-
-    taskStore.getAll().onsuccess = (e) => {
-        backup.tasks = e.target.result;
-
-        metaStore.get("gems").onsuccess = (e1) => {
-            backup.metadata.gems = e1.target.result || 0;
-            metaStore.get("globalFreezes").onsuccess = (e2) => {
-                backup.metadata.globalFreezes = e2.target.result || 0;
-                metaStore.get("activeCapacity").onsuccess = (e3) => {
-                    backup.metadata.activeCapacity = e3.target.result || 2;
-                    metaStore.get("trueMaxFreezes").onsuccess = (e4) => {
-                        backup.metadata.trueMaxFreezes = e4.target.result || 2;
-                        metaStore.get("lastFreezeRecharge").onsuccess = (e5) => {
-                            backup.metadata.lastFreezeRecharge = e5.target.result || null;
-                            metaStore.get("chestCombo").onsuccess = (e6) => {
-                                backup.metadata.chestCombo = e6.target.result || 0;
-                                metaStore.get("lastChestOpenDate").onsuccess = (e7) => {
-                                    backup.metadata.lastChestOpenDate = e7.target.result || null;
-                                    metaStore.get("chestEnabled").onsuccess = (e8) => {
-                                        backup.metadata.chestEnabled = e8.target.result || null;
-                                        metaStore.get("yearBadgeEnabled").onsuccess = (e9) => {
-                                            backup.metadata.yearBadgeEnabled = e9.target.result || null;
-
-
-                                            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-                                            const url = URL.createObjectURL(blob);
-                                            const a = document.createElement("a");
-                                            a.href = url;
-                                            // Get local time and format it to be file-system safe (no colons)
-                                            const now = new Date();
-                                            const tzoffset = now.getTimezoneOffset() * 60000;
-                                            const localTime = new Date(now.getTime() - tzoffset).toISOString().slice(0, 19).replace('T', " at ").replace(/:/g, '-');
-
-                                            a.download = `Game of Life ${localTime}.json`;
-                                            a.click();
-                                            showToast("Save file downloaded successfully!");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+    try {
+        const backup = {
+            tasks: await dbGetAll(taskStore),
+            metadata: {
+                gems: await dbGet(metaStore, "gems", 0),
+                globalFreezes: await dbGet(metaStore, "globalFreezes", 0),
+                activeCapacity: await dbGet(metaStore, "activeCapacity", 2),
+                trueMaxFreezes: await dbGet(metaStore, "trueMaxFreezes", 2),
+                lastFreezeRecharge: await dbGet(metaStore, "lastFreezeRecharge", null),
+                chestCombo: await dbGet(metaStore, "chestCombo", 0),
+                lastChestOpenDate: await dbGet(metaStore, "lastChestOpenDate", null),
+                chestEnabled: await dbGet(metaStore, "chestEnabled", false),
+                yearBadgeEnabled: await dbGet(metaStore, "yearBadgeEnabled", false),
+                globalStreak: await dbGet(metaStore, "globalStreak", 0),
+                lastStreakUpdate: await dbGet(metaStore, "lastStreakUpdate", 0)
             }
         };
-    };
+
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        
+        const now = new Date();
+        const tzoffset = now.getTimezoneOffset() * 60000;
+        const localTime = new Date(now.getTime() - tzoffset).toISOString().slice(0, 19).replace('T', " at ").replace(/:/g, '-');
+
+        a.download = `Game of Life ${localTime}.json`;
+        a.click();
+        showToast("Save file downloaded successfully!");
+        
+    } catch (error) {
+        console.error("Export failed:", error);
+        showToast("Error creating backup.");
+    }
 }
 
 function importData(event) {
@@ -1039,7 +1269,7 @@ function importData(event) {
             taskStore.clear();
             data.tasks.forEach(task => taskStore.add(task));
 
-            // Restore all 5 critical metadata pieces
+            // Restore all critical metadata pieces
             if (data.metadata?.gems !== undefined) metaStore.put(data.metadata.gems, "gems");
             if (data.metadata?.globalFreezes !== undefined) metaStore.put(data.metadata.globalFreezes, "globalFreezes");
             if (data.metadata?.activeCapacity !== undefined) metaStore.put(data.metadata.activeCapacity, "activeCapacity");
@@ -1049,6 +1279,8 @@ function importData(event) {
             if (data.metadata?.lastChestOpenDate !== undefined) metaStore.put(data.metadata.lastChestOpenDate, "lastChestOpenDate");
             if (data.metadata?.chestEnabled !== undefined) metaStore.put(data.metadata.chestEnabled, "chestEnabled");
             if (data.metadata?.yearBadgeEnabled !== undefined) metaStore.put(data.metadata.yearBadgeEnabled, "yearBadgeEnabled");
+            if (data.metadata?.globalStreak !== undefined) metaStore.put(data.metadata.globalStreak, "globalStreak");
+            if (data.metadata?.lastStreakUpdate !== undefined) metaStore.put(data.metadata.lastStreakUpdate, "lastStreakUpdate");
 
 
             transaction.oncomplete = () => {
@@ -1131,21 +1363,6 @@ function toggleFeature(feature, isChecked) {
     if (feature === 'badge') metaStore.put(isChecked, "yearBadgeEnabled");
 
     transaction.oncomplete = () => refreshTasks(); // Apply UI changes instantly
-}
-
-function toggleCapacity() {
-    const isChecked = document.getElementById('capacityToggle').checked;
-    const newCapacity = isChecked ? 5 : 2;
-
-    const transaction = db.transaction([META_STORE], "readwrite");
-    const metaStore = transaction.objectStore(META_STORE);
-
-    // We strictly ONLY update the UI limit. The hidden stash is perfectly safe!
-    metaStore.put(newCapacity, "activeCapacity");
-
-    transaction.oncomplete = () => {
-        refreshTasks(); // Instantly visually updates the fraction in the header
-    };
 }
 
 // #endregion
