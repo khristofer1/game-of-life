@@ -651,7 +651,7 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
         const card = document.createElement('div');
 
         // Add dynamic targeting class
-        card.className = `glass-card rounded-[2rem] p-6 shadow-premium transition-all ${task.completed ? 'ring-2 ring-orange-400 bg-white/40 ring-inset' : ''} ${isPending ? 'opacity-75 grayscale-[0.2]' : ''} ${isDynamic ? 'dynamic-task-card' : ''}`;
+        card.className = `glass-card flex flex-col h-full rounded-[2rem] p-6 shadow-premium transition-all ${task.completed ? 'ring-2 ring-orange-400 bg-white/40 ring-inset' : ''} ${isPending ? 'opacity-75 grayscale-[0.2]' : ''} ${isDynamic ? 'dynamic-task-card' : ''}`;
 
         // Embed the math directly into the HTML element
         if (isDynamic) {
@@ -682,7 +682,7 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
         card.innerHTML = `
             <div class="flex justify-between items-start mb-3 gap-4">
                 <div class="flex-1 min-w-0">
-                    <h3 class="text-lg font-bold text-dark leading-tight">${task.name}</h3>
+                    <h3 class="text-lg font-bold text-dark leading-tight line-clamp-1">${task.name}</h3>
                     ${task.desc ? `<p class="text-xs text-muted mt-1 line-clamp-2">${task.desc}</p>` : ''}
                 </div>
             </div>
@@ -697,7 +697,7 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
                 </div>
             </div>
 
-            <div class="mt-auto pt-2 flex items-center justify-between gap-2">
+            <div class="pt-2 flex items-center justify-between gap-2">
                 <button ${btnAction} class="check-transition flex-grow flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm whitespace-nowrap ${btnClass}">
                     ${btnText}
                 </button>
