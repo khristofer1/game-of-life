@@ -247,22 +247,31 @@ function refreshTasks() {
                     return;
                 }
 
-                if (timeLeft <= 0) {
-                    const timeOverdue = now - task.deadline;
-                    const cyclesMissed = Math.floor(timeOverdue / task.durationMs) + 1;
+                // Compatibility for older quests created before this update
+                if (!task.cycleStart) task.cycleStart = task.createdAt || task.startDate;
+                if (!task.activeDeadlineMs) task.activeDeadlineMs = task.durationMs;
 
-                    task.completed = false;
-                    task.gemClaimed = false; // Reset claim status for the new cycle!
-                    task.completedAt = null;
+                // 1. Has the full recurrence interval passed? (e.g., is it next Monday 10:00 AM?)
+                if (now >= task.cycleStart + task.durationMs) {
+                    const cyclesMissed = Math.floor((now - task.cycleStart) / task.durationMs);
                     
-                    task.createdAt = task.createdAt + (cyclesMissed * task.durationMs);
-                    task.deadline = task.deadline + (cyclesMissed * task.durationMs);
-                    timeLeft = task.deadline - now;
+                    task.cycleStart += (cyclesMissed * task.durationMs); // Advance to current cycle
+                    task.completed = false;
+                    task.gemClaimed = false; 
+                    task.completedAt = null;
                     store.put(task);
                 }
 
+                // 2. Calculate Energy based on the ACTIVE window
+                const currentCycleDeadline = task.cycleStart + task.activeDeadlineMs;
+                timeLeft = currentCycleDeadline - now;
+
                 if (timeLeft > 0 && !task.completed) {
-                    task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
+                    // Draining energy actively
+                    task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.activeDeadlineMs) * 100)));
+                } else if (timeLeft <= 0 && !task.completed) {
+                    // Window missed. Energy is 0 until the next cycle rolls over
+                    task.energyPercent = 0;
                 }
             });
 
@@ -397,7 +406,8 @@ function saveTask() {
     let freqNum = 1, freqUnit = 'weeks', displayFreq = '', durationMs = 0;
     let hasLimit = false, limitData = { type: null }, expireAt = null;
     let deadline;
-    let oneTimeData = null; // <-- NEW: Stores your choice so we can edit it later
+    let oneTimeData = null;
+    let activeDeadlineMs = 0;
 
     if (isOneTime) {
         const otType = document.getElementById('oneTimeDeadlineType').value;
@@ -434,10 +444,27 @@ function saveTask() {
         if (freqUnit === 'months') days = freqNum * 30;
         if (freqUnit === 'years') days = freqNum * 365;
 
-        durationMs = days * 24 * 60 * 60 * 1000;
+        durationMs = days * 24 * 60 * 60 * 1000; // This is the full recurrence interval
         const unitText = freqNum === 1 ? freqUnit.slice(0, -1) : freqUnit;
         displayFreq = `Every ${freqNum} ${unitText.charAt(0).toUpperCase() + unitText.slice(1)}`;
-        deadline = startDate + durationMs;
+        
+        // --- NEW: Calculate Active Deadline ---
+        const activeNum = parseInt(document.getElementById('recurringDeadlineNum').value);
+        const activeUnit = document.getElementById('recurringDeadlineUnit').value;
+        if (isNaN(activeNum) || activeNum < 1) return showToast("Enter a valid active window.");
+        
+        let activeMulti = 1;
+        if (activeUnit === 'minutes') activeMulti = 60 * 1000;
+        if (activeUnit === 'hours') activeMulti = 60 * 60 * 1000;
+        if (activeUnit === 'days') activeMulti = 24 * 60 * 60 * 1000;
+        if (activeUnit === 'weeks') activeMulti = 7 * 24 * 60 * 60 * 1000;
+        
+        activeDeadlineMs = activeNum * activeMulti;
+        
+        // Validation constraint:
+        if (activeDeadlineMs > durationMs) {
+            return showToast("Active window cannot be longer than the repeat interval!");
+        }
 
         // Limits UI Data
         hasLimit = document.getElementById('taskHasLimit').checked;
@@ -489,6 +516,7 @@ function saveTask() {
             task.limitData = limitData;
             task.expireAt = expireAt;
             task.oneTimeData = oneTimeData;
+            task.activeDeadlineMs = activeDeadlineMs;
 
             const now = Date.now();
             const isPending = task.startDate && now < task.startDate;
@@ -496,8 +524,22 @@ function saveTask() {
             if (isPending) {
                 task.energyPercent = 100;
             } else if (!task.completed) {
-                const timeLeft = task.deadline - now;
-                task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
+                if (task.isOneTime) {
+                    const timeLeft = task.deadline - now;
+                    task.energyPercent = Math.max(0, Math.min(100, Math.round((timeLeft / task.durationMs) * 100)));
+                } else {
+                    // Polyfill cycleStart for old quests just in case they don't have it yet
+                    if (!task.cycleStart) task.cycleStart = task.createdAt || task.startDate || now;
+                    
+                    const currentCycleDeadline = task.cycleStart + task.activeDeadlineMs;
+                    const activeTimeLeft = currentCycleDeadline - now;
+                    
+                    if (activeTimeLeft > 0) {
+                        task.energyPercent = Math.max(0, Math.min(100, Math.round((activeTimeLeft / task.activeDeadlineMs) * 100)));
+                    } else {
+                        task.energyPercent = 0;
+                    }
+                }
             }
 
             store.put(task);
@@ -516,6 +558,7 @@ function saveTask() {
             createdAt: startDate,
             deadline: deadline,
             oneTimeData: oneTimeData,
+            activeDeadlineMs, cycleStart: startDate,
             streak: 0, completed: false, energyPercent: 100
         });
 
@@ -655,8 +698,12 @@ function renderTaskCards(taskArray, containerId, emptyMessage) {
 
         // Embed the math directly into the HTML element
         if (isDynamic) {
-            card.setAttribute('data-deadline', task.deadline);
-            card.setAttribute('data-duration', task.durationMs);
+            // Use the cycle deadline for recurring, standard deadline for one-time
+            const activeDeadline = task.isOneTime ? task.deadline : (task.cycleStart + task.activeDeadlineMs);
+            const activeDuration = task.isOneTime ? task.durationMs : task.activeDeadlineMs;
+            
+            card.setAttribute('data-deadline', activeDeadline);
+            card.setAttribute('data-duration', activeDuration);
         }
 
         let barColor = 'bg-green-500';
@@ -850,6 +897,24 @@ function fetchAndEditTaskModal(id) {
         } else {
             document.getElementById('taskFreqNum').value = task.freqNum || 1;
             document.getElementById('taskFreqUnit').value = task.freqUnit || 'weeks';
+
+            // Load Active Window back into UI ---
+            if (task.activeDeadlineMs) {
+                let ms = task.activeDeadlineMs;
+                if (ms % (7 * 24 * 60 * 60 * 1000) === 0) {
+                    document.getElementById('recurringDeadlineNum').value = ms / (7 * 24 * 60 * 60 * 1000);
+                    document.getElementById('recurringDeadlineUnit').value = 'weeks';
+                } else if (ms % (24 * 60 * 60 * 1000) === 0) {
+                    document.getElementById('recurringDeadlineNum').value = ms / (24 * 60 * 60 * 1000);
+                    document.getElementById('recurringDeadlineUnit').value = 'days';
+                } else if (ms % (60 * 60 * 1000) === 0) {
+                    document.getElementById('recurringDeadlineNum').value = ms / (60 * 60 * 1000);
+                    document.getElementById('recurringDeadlineUnit').value = 'hours';
+                } else {
+                    document.getElementById('recurringDeadlineNum').value = Math.floor(ms / (60 * 1000));
+                    document.getElementById('recurringDeadlineUnit').value = 'minutes';
+                }
+            }
 
             // Load Limit Data...
             document.getElementById('taskHasLimit').checked = task.hasLimit || false;
