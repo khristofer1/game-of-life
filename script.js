@@ -456,22 +456,29 @@ function saveTask() {
         const unitText = freqNum === 1 ? freqUnit.slice(0, -1) : freqUnit;
         displayFreq = `Every ${freqNum} ${unitText.charAt(0).toUpperCase() + unitText.slice(1)}`;
         
-        // --- NEW: Calculate Active Deadline ---
-        const activeNum = parseInt(document.getElementById('recurringDeadlineNum').value);
-        const activeUnit = document.getElementById('recurringDeadlineUnit').value;
-        if (isNaN(activeNum) || activeNum < 1) return showToast("Enter a valid deadline.");
+       // --- Calculate Active Deadline ---
+        const hasShorterDeadline = document.getElementById('hasShorterDeadline').checked;
         
-        let activeMulti = 1;
-        if (activeUnit === 'minutes') activeMulti = 60 * 1000;
-        if (activeUnit === 'hours') activeMulti = 60 * 60 * 1000;
-        if (activeUnit === 'days') activeMulti = 24 * 60 * 60 * 1000;
-        if (activeUnit === 'weeks') activeMulti = 7 * 24 * 60 * 60 * 1000;
-        
-        activeDeadlineMs = activeNum * activeMulti;
-        
-        // Validation constraint:
-        if (activeDeadlineMs > durationMs) {
-            return showToast("Deadline cannot be longer than the repeat interval!");
+        if (hasShorterDeadline) {
+            const activeNum = parseInt(document.getElementById('recurringDeadlineNum').value);
+            const activeUnit = document.getElementById('recurringDeadlineUnit').value;
+            if (isNaN(activeNum) || activeNum < 1) return showToast("Enter a valid deadline.");
+            
+            let activeMulti = 1;
+            if (activeUnit === 'minutes') activeMulti = 60 * 1000;
+            if (activeUnit === 'hours') activeMulti = 60 * 60 * 1000;
+            if (activeUnit === 'days') activeMulti = 24 * 60 * 60 * 1000;
+            if (activeUnit === 'weeks') activeMulti = 7 * 24 * 60 * 60 * 1000;
+            
+            activeDeadlineMs = activeNum * activeMulti;
+            
+            // Validation constraint:
+            if (activeDeadlineMs > durationMs) {
+                return showToast("Deadline cannot be longer than the repeat interval!");
+            }
+        } else {
+            // If the box isn't checked, the active deadline is just the full repeat interval
+            activeDeadlineMs = durationMs; 
         }
 
         // Limits UI Data
@@ -847,6 +854,7 @@ function openTaskModal() {
     // Force the UI to match the freshly reset form
     toggleQuestType();
     toggleLimitType();
+    if (typeof toggleRecurringDeadline === "function") toggleRecurringDeadline();
     setTimeout(() => {
         document.getElementById('taskName').focus();
     }, 50);
@@ -906,9 +914,12 @@ function fetchAndEditTaskModal(id) {
             document.getElementById('taskFreqNum').value = task.freqNum || 1;
             document.getElementById('taskFreqUnit').value = task.freqUnit || 'weeks';
 
-            // Load Active Window back into UI ---
-            if (task.activeDeadlineMs) {
+            // --- Load Active Window back into UI ---
+            // Only check the box if it has a deadline AND it's strictly shorter than the full interval
+            if (task.activeDeadlineMs && task.activeDeadlineMs < task.durationMs) {
+                document.getElementById('hasShorterDeadline').checked = true;
                 let ms = task.activeDeadlineMs;
+                
                 if (ms % (7 * 24 * 60 * 60 * 1000) === 0) {
                     document.getElementById('recurringDeadlineNum').value = ms / (7 * 24 * 60 * 60 * 1000);
                     document.getElementById('recurringDeadlineUnit').value = 'weeks';
@@ -922,7 +933,12 @@ function fetchAndEditTaskModal(id) {
                     document.getElementById('recurringDeadlineNum').value = Math.floor(ms / (60 * 1000));
                     document.getElementById('recurringDeadlineUnit').value = 'minutes';
                 }
+            } else {
+                document.getElementById('hasShorterDeadline').checked = false;
+                document.getElementById('recurringDeadlineNum').value = 3;
+                document.getElementById('recurringDeadlineUnit').value = 'hours';
             }
+            toggleRecurringDeadline(); // Ensure the container actually shows/hides!
 
             // Load Limit Data...
             document.getElementById('taskHasLimit').checked = task.hasLimit || false;
@@ -1005,6 +1021,16 @@ function toggleLimitInputs() {
     } else if (type === 'occurrences') {
         document.getElementById('limitOccurrencesInputs').classList.remove('hidden');
         document.getElementById('limitOccurrencesInputs').classList.add('flex');
+    }
+}
+
+function toggleRecurringDeadline() {
+    const isChecked = document.getElementById('hasShorterDeadline').checked;
+    const container = document.getElementById('recurringDeadlineContainer');
+    if (isChecked) {
+        container.classList.remove('hidden');
+    } else {
+        container.classList.add('hidden');
     }
 }
 
