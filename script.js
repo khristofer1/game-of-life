@@ -372,15 +372,23 @@ function refreshTasks() {
                 if (freezesUsed > 0) showToast(`Used ${freezesUsed} ❄️ to protect your Global Streak!`);
 
                 // 5. Render Board
-                const activeQuests = tasks.filter(t => !t.completed && !t.isArchived && !(t.startDate && now < t.startDate)).sort((a, b) => a.deadline - b.deadline);
-                const comingQuests = tasks.filter(t => !t.completed && !t.isArchived && (t.startDate && now < t.startDate)).sort((a, b) => a.startDate - b.startDate);
-                const finishedQuests = tasks.filter(t => t.completed && !t.isArchived).sort((a, b) => a.deadline - b.deadline);
+                // Helper to determine the true current deadline for sorting
+                const getRealDeadline = (t) => t.isOneTime ? t.deadline : (t.cycleStart + t.activeDeadlineMs);
+
+                const activeQuests = tasks.filter(t => !t.completed && !t.isArchived && !(t.startDate && now < t.startDate))
+                    .sort((a, b) => getRealDeadline(a) - getRealDeadline(b));
+                    
+                const comingQuests = tasks.filter(t => !t.completed && !t.isArchived && (t.startDate && now < t.startDate))
+                    .sort((a, b) => a.startDate - b.startDate);
+                    
+                const finishedQuests = tasks.filter(t => t.completed && !t.isArchived)
+                    .sort((a, b) => getRealDeadline(a) - getRealDeadline(b));
 
                 renderTaskCards(activeQuests, 'activeTasksList', 'No active quests for today.');
                 renderTaskCards(comingQuests, 'comingTasksList', 'No upcoming quests.');
                 renderTaskCards(finishedQuests, 'completedTasksList', 'No quests conquered yet.');
-            }; // Closes the globalStreak fetch
-        }; // Closes the lastStreakUpdate fetch
+            };
+        };
     }}}}}}}}};
 }
 
@@ -451,7 +459,7 @@ function saveTask() {
         // --- NEW: Calculate Active Deadline ---
         const activeNum = parseInt(document.getElementById('recurringDeadlineNum').value);
         const activeUnit = document.getElementById('recurringDeadlineUnit').value;
-        if (isNaN(activeNum) || activeNum < 1) return showToast("Enter a valid active window.");
+        if (isNaN(activeNum) || activeNum < 1) return showToast("Enter a valid deadline.");
         
         let activeMulti = 1;
         if (activeUnit === 'minutes') activeMulti = 60 * 1000;
@@ -463,7 +471,7 @@ function saveTask() {
         
         // Validation constraint:
         if (activeDeadlineMs > durationMs) {
-            return showToast("Active window cannot be longer than the repeat interval!");
+            return showToast("Deadline cannot be longer than the repeat interval!");
         }
 
         // Limits UI Data
